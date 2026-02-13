@@ -1,0 +1,57 @@
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/probabilistic/run_spbun_podes_susenas.log
+  log type:  text
+ opened on:  27 Jan 2026, 21:26:34
+
+. 
+. 
+. version 17
+
+. clear all
+
+. set more off
+
+. set linesize 255
+
+. set maxvar 32767
+
+
+. 
+. /****************************************************************************************
+> A. PATHS (EDIT THIS)
+> ****************************************************************************************/
+. 
+. * Project root (recommended: one root, all relative)
+. global ROOT "/Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina"
+
+. 
+. * Core inputs used by SPBUN-Analysis4 logic
+. global spbun_csv    "$ROOT/Realisasi SPBUN 2024-2025(2024).csv"
+
+. global kel_latlon   "$ROOT/kelurahan_lat_long.csv"
+
+. global podes_main   "$ROOT/Podes/podes2024_desa_02..dta"
+
+. global podes_pesisir "$ROOT/Podes/Podes kab kota pesisir laut.dta"
+
+. 
+. * Instrument point datasets (nearest distance instruments)
+. global pelabuhan_data "$ROOT/TBBM-TPI-PPI/pelabuhan_data.csv"
+
+. global tbbm_data      "$ROOT/TBBM-TPI-PPI/TBBM_Cleaned_Geocoded.xlsx"
+
+. global tpi_data       "$ROOT/TBBM-TPI-PPI/tpi_google_v1_master_deduped.xlsx"
+
+. 
+. * Feasibility / Payback Period (PP) dataset (site-level)
+. global pp_xlsx "$ROOT/v4_Model_All Fuel 12Bulan SG6.34.xlsx"
+
+. 
+. * Outputs
+. global outdir "$ROOT/Output/iv2sls_m0m3"
+
+. cap mkdir "$outdir"
+
+. 
+. cap log close

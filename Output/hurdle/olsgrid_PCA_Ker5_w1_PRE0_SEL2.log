@@ -1,0 +1,13 @@
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/hurdle/olsgrid_PCA_Ker5_w1_PRE0_SEL2.log
+  log type:  text
+ opened on:  22 Jan 2026, 11:55:01
+RUN: reg Ker5_w1 lnpov i.r308b1d i.r308b1e i.r309a i.r309b i.r309d i.r309e i.r310 i.r403a i.r403c1 i.r403c2 i.y_combo3 i.r101 Env_z, vce(cluster nama_kab)
+variable Env_z not found
+FAILED (rc=111)
+      name:  <unnamed>
+       log:  /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/hurdle/olsgrid_PCA_Ker5_w1_PRE0_SEL2.log
+  log type:  text
+ closed on:  22 Jan 2026, 11:55:01
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------

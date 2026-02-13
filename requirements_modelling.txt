@@ -1,0 +1,11 @@
+# Python deps for FULL_Modelling.ipynb (M4–M7 spatial pipeline)
+pandas
+numpy
+scipy
+statsmodels
+linearmodels
+libpysal
+esda
+spreg
+geopandas
+matplotlib

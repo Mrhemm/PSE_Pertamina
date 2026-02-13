@@ -1,0 +1,2 @@
+﻿row_index,no,classification,nama_badan_usaha,provinsi,kabupaten,original_coordinate,error,lat,lon
+39,5885103,SPBUN,KUD MINA KAROTA,Nusa Tenggara Timur,Kota Kupang,"-101.71797,123.563677",Latitude out of range for Indonesia: -101.71797 (expected -15 to 10),-101.71797,123.563677

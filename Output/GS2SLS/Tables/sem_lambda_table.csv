@@ -1,0 +1,5 @@
+sample,outcome,lambda,lambda_se
+COAST,lnpov_z,0.45984541522897404,
+COAST,Wbasic_z,0.48324407469782393,
+ALL,lnpov_z,0.5029843569760282,
+ALL,Wbasic_z,0.5729658547834352,

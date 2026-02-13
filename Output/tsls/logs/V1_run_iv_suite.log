@@ -1,0 +1,3133 @@
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/logs/V1_run_iv_suite.log
+  log type:  text
+ opened on:   3 Feb 2026, 14:16:18
+. }
+
+. else {
+.         log using "$outdir/logs/V2_run_iv_suite.log", replace text
+. }
+
+. 
+. /****************************************************************************************
+> C. PACKAGES
+> ****************************************************************************************/
+. cap which ftools
+
+. if _rc ssc install ftools, replace
+
+. 
+. cap which reghdfe
+
+. if _rc ssc install reghdfe, replace
+
+. 
+. cap which ivreghdfe
+
+. if _rc ssc install ivreghdfe, replace
+
+. 
+. cap which ivreg2
+
+. if _rc ssc install ivreg2, replace
+
+. 
+. cap which esttab
+
+. if _rc ssc install estout, replace
+
+. 
+. cap which esttab
+
+. if _rc ssc install spwmatrix, replace
+
+. 
+. /****************************************************************************************
+> D. SETTINGS 
+> ****************************************************************************************/
+. global ID    "iddesa"
+
+. global FE    "kab"
+
+. global CLUST "kab"
+
+. 
+. /****************************************************************************************
+> E. INIT
+> ****************************************************************************************/
+. tempfile VMASTER1
+
+. global VMASTER1 "`VMASTER1'"
+
+. 
+. clear
+
+. set obs 0
+Number of observations (_N) was 0, now 0.
+
+. 
+. gen str32 $ID = ""
+
+. gen str10  sample  = ""
+
+. gen str18  outcome = ""
+
+. gen str12  spec    = ""
+
+. gen double A_used  = .
+
+. gen double W_hat   = .
+
+. gen double uhat    = .
+
+. gen double beta_vill = .
+
+. gen double A_contrib = .
+
+. 
+. save "$VMASTER1", replace
+(dataset contains 0 observations)
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+
+. 
+. tempfile VMASTER2
+
+. global VMASTER2 "`VMASTER2'"
+
+. 
+. clear
+
+. set obs 0
+Number of observations (_N) was 0, now 0.
+
+. 
+. gen str32 $ID = ""
+
+. gen str10  sample  = ""
+
+. gen str18  outcome = ""
+
+. gen str12  spec    = ""
+
+. gen double A_used  = .
+
+. gen double W_hat   = .
+
+. gen double uhat    = .
+
+. gen double beta_vill = .
+
+. gen double A_contrib = .
+
+. 
+. save "$VMASTER2", replace
+(dataset contains 0 observations)
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000002 not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000002 saved as .dta format
+
+. 
+. /****************************************************************************************
+> F. FLAGS
+> ****************************************************************************************/
+. 
+. * Default all run-switch globals to 0 if they are undefined/empty
+. if "$DO_M0" == "" {
+.     global DO_M0 0
+. }
+
+. if "$DO_M1" == "" {
+.     global DO_M1 0
+. }
+
+. if "$DO_M2" == "" {
+.     global DO_M2 0
+. }
+
+. if "$DO_M3" == "" {
+.     global DO_M3 0
+. }
+
+. 
+. if "$RUN_COAST" == "" {
+.     global RUN_COAST 0
+. }
+
+. if "$RUN_ALL" == "" {
+.     global RUN_ALL 0
+. }
+
+. 
+. /****************************************************************************************
+> G. CORE RUNNER
+> ****************************************************************************************/
+. #delimit cr
+delimiter now cr
+. capture program drop _run_one_sample
+
+. program define _run_one_sample
+  1.     syntax, DATASET(string) TAG(string)
+  2. 
+.     use "`dataset'", clear
+  3. 
+.     *----------------------------
+.     * Guards
+.     *----------------------------
+.     cap confirm variable $ID
+  4.     cap confirm variable $FE
+  5.     cap confirm variable lat_v
+  6.     local rc_lat = _rc
+  7.     cap confirm variable lon_v
+  8.     local rc_lon = _rc
+  9.     if (`rc_lat' | `rc_lon') {
+ 10.         noi di as err "WARNING: Missing coords lat_v/lon_v (spatial blocks may skip)."
+ 11.     }
+ 12. 
+.     cap drop spid
+ 13.     cap drop spid
+ 14.         egen long spid = group($ID)
+ 15.         label var spid "Spatial unit id derived from $ID"
+ 16. 
+. 
+.     *----------------------------
+.     * 0) Ensure exposure + instruments exist (or build from distances)
+.     *----------------------------
+.     cap confirm variable A_v_log
+ 17.     if _rc {
+ 18.         cap confirm variable D_spbun
+ 19.         if _rc {
+ 20.             di as err "Missing A_v_log and D_spbun; cannot construct exposure."
+ 21.             exit 198
+ 22.         }
+ 23.         gen double A_v_log = -ln(1 + D_spbun) if !missing(D_spbun)
+ 24.     }
+ 25. 
+.     cap confirm variable Z_pel
+ 26.     if _rc {
+ 27.         cap confirm variable D_pel_iv
+ 28.         if _rc {
+ 29.             di as err "Missing Z_pel and D_pel_iv; cannot construct instrument."
+ 30.             exit 198
+ 31.         }
+ 32.         gen double Z_pel = -ln(1 + D_pel_iv) if !missing(D_pel_iv)
+ 33.     }
+ 34. 
+.     cap confirm variable Z_tbbm
+ 35.     if _rc {
+ 36.         cap confirm variable D_tbbm_iv
+ 37.         if _rc {
+ 38.             di as err "Missing Z_tbbm and D_tbbm_iv; cannot construct instrument."
+ 39.             exit 198
+ 40.         }
+ 41.         gen double Z_tbbm = -ln(1 + D_tbbm_iv) if !missing(D_tbbm_iv)
+ 42.     }
+ 43. 
+.     cap confirm variable Z_tpi
+ 44.     if _rc {
+ 45.         cap confirm variable D_tpi_iv
+ 46.         if _rc {
+ 47.             di as err "Missing Z_tpi and D_tpi_iv; cannot construct instrument."
+ 48.             exit 198
+ 49.         }
+ 50.         gen double Z_tpi = -ln(1 + D_tpi_iv) if !missing(D_tpi_iv)
+ 51.     }
+ 52. 
+.     cap confirm variable C5_w1
+ 53.     if !_rc {
+ 54.         cap drop A0_5 A5_10 A10_15
+ 55.         gen double A0_5   = C5_w1 if !missing(C5_w1)
+ 56.         gen double A5_10  = (C10_w1 - C5_w1)  if !missing(C10_w1, C5_w1)
+ 57.         gen double A10_15 = (C15_w1 - C10_w1) if !missing(C15_w1, C10_w1)
+ 58.         replace A5_10  = 0 if A5_10  < 0 & !missing(A5_10)
+ 59.         replace A10_15 = 0 if A10_15 < 0 & !missing(A10_15)
+ 60.     }
+ 61. 
+.     *----------------------------
+.     * 1) Outcomes available
+.     *----------------------------
+.     local YLIST_S ""
+ 62.     foreach y in Wbasic_z lnpov_z {
+ 63.         cap confirm variable `y'
+ 64.         if !_rc {
+ 65.             local YLIST_S "`YLIST_S' `y'"
+ 66.         }
+ 67.     }
+ 68. 
+.     *--------------------------------
+.     * 2) Controls
+.     *--------------------------------
+. 
+.     * A) Clean categorical
+.     local CATVARS "r308b1d r308b1e r309a r309b r309d r309e r310 r403a r403c1 r403c2"
+ 69. 
+.     tempvar __es
+ 70.     gen byte `__es' = !missing(A_v_log, Z_tpi, Z_tbbm, Z_pel, kab)
+ 71. 
+.     foreach v of local CATVARS {
+ 72.         cap confirm numeric variable `v'
+ 73.         if _rc continue
+ 74. 
+.         cap drop `v'_c
+ 75.         clonevar `v'_c = `v'
+ 76. 
+.         preserve
+ 77.             keep if `__es'
+ 78.             keep kab `v'_c
+ 79.             drop if missing(kab) | missing(`v'_c)
+ 80.             contract kab `v'_c
+ 81.             bysort `v'_c: gen n_kab = _N
+ 82.             levelsof `v'_c if n_kab<=1, local(rare)
+ 83.         restore
+ 84. 
+.         if "`rare'" != "" {
+ 85.             noi di as txt "Recode rare levels in `v'_c (<=1 kab cluster) -> 99: `rare'"
+ 86.             recode `v'_c (`rare' = 99)
+ 87. 
+.             local lbl : value label `v'
+ 88.             if "`lbl'" != "" {
+ 89.                 cap label define `lbl' 99 "Other/rare", add
+ 90.                 cap label values `v'_c `lbl'
+ 91.             }
+ 92.             else {
+ 93.                 cap label define `v'_lbl 99 "Other/rare", replace
+ 94.                 cap label values `v'_c `v'_lbl
+ 95.             }
+ 96.         }
+ 97.     }
+ 98. 
+.     * B) Base categorical controls 
+.     local X_S_base_cat "i.r308b1d_c i.r308b1e_c i.r309a_c i.r309b_c i.r309d_c i.r309e_c i.r310_c i.r403a_c i.r403c1_c i.r403c2_c"
+ 99.     local X_S_cat ""
+100.     foreach term of local X_S_base_cat {
+101.         local base = subinstr("`term'","i.","",.)
+102.         cap confirm variable `base'
+103.         if !_rc local X_S_cat "`X_S_cat' `term'"
+104.     }
+105. 
+.     * C) PCA-breakdown controls 
+.     local X_edu_b  ""
+106.     cap ds r701*_b, has(type numeric)
+107.     if !_rc local X_edu_b "`r(varlist)'"
+108. 
+.     local X_hlth_b ""
+109.     cap ds r711*_b, has(type numeric)
+110.     if !_rc local X_hlth_b "`r(varlist)'"
+111. 
+.     local X_util_b ""
+112.     cap ds r509c*_b, has(type numeric)
+113.     if !_rc local X_util_b "`r(varlist)'"
+114. 
+.     * D) Control-set variants for M1 grid
+.     local X_none    ""
+115.     local X_base    "`X_S_cat'"
+116.     local X_edu     "`X_S_cat' `X_edu_b'"
+117.     local X_hlth    "`X_S_cat' `X_hlth_b'"
+118.     local X_util    "`X_S_cat' `X_util_b'"
+119.     local X_edu_nb  "`X_edu_b'"
+120.     local X_hlth_nb "`X_hlth_b'"
+121.     local X_util_nb "`X_util_b'"
+122.     local X_full    "`X_S_cat' `X_other' `X_edu_b' `X_hlth_b' `X_util_b'"
+123.     local X_S "`X_full'"
+124.     local X_S : list uniq X_S
+125. 
+.     * IV options: use partial(`X_S') to stabilize cluster-robust VCE + allow overid/Hansen J
+.     local IVOPTS "absorb($FE) vce(cluster $CLUST) resid"
+126.     local PARTOPTS ""
+127.     if "`X_S'" != "" local PARTOPTS "partial(`X_S')"
+128. 
+. 
+.     /****************************************************************************************
+>     M0. FIRST STAGE
+>     ****************************************************************************************/
+.     if $DO_M0 == 1 {
+129.         noi di as txt "-> V1 M0 First stage (`tag')"
+130.         qui reghdfe A_v_log Z_pel Z_tbbm Z_tpi `X_S', absorb($FE) vce(cluster $CLUST)
+131.         est store M0_`tag'
+132.         esttab M0_`tag' using "$outdir/tables/V1_M0_firststage_`tag'.rtf", replace ///
+>             se b(%9.4f) se(%9.4f) star(* 0.10 ** 0.05 *** 0.01) ///
+>             title("M0 First stage v1: A_v_log on Z + X + FE (`tag')") ///
+>             scalars(N r2) compress
+133.     }
+134.         
+.         if $DO_M0 == 0 {
+135.         noi di as txt "-> V2 M0 First stage (`tag')"
+136.         qui reghdfe A_v_log Z_pel Z_tbbm Z_tpi `X_S', absorb($FE) vce(cluster $CLUST)
+137.         est store M0_`tag'
+138.         esttab M0_`tag' using "$outdir/tables/V2_M0_firststage_`tag'.rtf", replace ///
+>             se b(%9.4f) se(%9.4f) star(* 0.10 ** 0.05 *** 0.01) ///
+>             title("M0 First stage v2: A_v_log on Z + X + FE (`tag')") ///
+>             scalars(N r2) compress
+139.     }
+140. 
+.     /****************************************************************************************
+>     M1. IV-2SLS 
+>         ****************************************************************************************/
+.     if $DO_M1 == 1 {
+141. 
+.         local M1SPECS "edu hlth util base none edu_nb hlth_nb util_nb"
+142. 
+.         foreach Y of local YLIST_S {
+143. 
+.             foreach s of local M1SPECS {
+144.                 local scode ""
+145.                 if "`s'" == "edu"     local scode "IVH_EDU"
+146.                 if "`s'" == "hlth"    local scode "IVH_HLTH"
+147.                 if "`s'" == "util"    local scode "IVH_UTIL"
+148.                 if "`s'" == "base"    local scode "IVH_BASE"
+149.                 if "`s'" == "none"    local scode "IVH_NONE"
+150.                 if "`s'" == "edu_nb"  local scode "IVH_EDU_NB"
+151.                 if "`s'" == "hlth_nb" local scode "IVH_HLTH_NB"
+152.                 if "`s'" == "util_nb" local scode "IVH_UTIL_NB"
+153.                 if "`scode'" == "" continue
+154. 
+.                 local X_this "`X_`s''"
+155.                 local PART_this ""
+156.                 if "`X_this'" != "" local PART_this "partial(`X_this')"
+157. 
+.                 noi di as txt "-> M1 Homog IV v1: `Y' (`tag') [ `scode' ]"
+158. 
+.                 cap noisily ivreghdfe `Y' (A_v_log = Z_pel Z_tbbm Z_tpi) `X_this', `IVOPTS' `PART_this'
+159.                                 
+.                                 local tshort = upper(substr("`tag'",1,1))
+160.                                 if "`tag'" == "COAST" local tshort "C"
+161.                                 if "`tag'" == "ALL"   local tshort "A"
+162. 
+.                                 local ycode = upper(substr("`Y'",1,2))
+163.                                 if "`Y'" == "Wbasic_z"      local ycode "WB"
+164.                                 if "`Y'" == "lnpov_z"       local ycode "LP"
+165. 
+.                                 local sshort ""
+166.                                 if "`s'" == "edu"     local sshort "E"
+167.                                 if "`s'" == "hlth"    local sshort "H"
+168.                                 if "`s'" == "util"    local sshort "U"
+169.                                 if "`s'" == "base"    local sshort "B"
+170.                                 if "`s'" == "none"    local sshort "N"
+171.                                 if "`s'" == "edu_nb"  local sshort "e"
+172.                                 if "`s'" == "hlth_nb" local sshort "h"
+173.                                 if "`s'" == "util_nb" local sshort "u"
+174. 
+.                                 local estname = "v1_m1`sshort'`tshort'`ycode'"
+175.                                 est store `estname'
+176. 
+.                                 esttab `estname' using "$outdir/tables/V1_M1_iv_homog_`tag'_`Y'_`scode'.rtf", replace ///
+>                                         se b(%9.4f) se(%9.4f) star(* 0.10 ** 0.05 *** 0.01) ///
+>                                         title("M1 Homog IV (`scode') v1: `Y' on A_v_log (`tag')") ///
+>                                         scalars(N r2) compress
+177. 
+.                                 cap drop W_hat uhat beta_vill A_contrib
+178.                                 predict double W_hat if e(sample), xb
+179.                                 predict double uhat  if e(sample), resid
+180.                                 gen double beta_vill = _b[A_v_log] if e(sample)
+181.                                 gen double A_contrib = beta_vill * A_v_log if e(sample) & !missing(A_v_log)
+182. 
+.                                 preserve
+183.                                         keep $ID A_v_log W_hat uhat beta_vill A_contrib
+184.                                         cap confirm string variable $ID
+185.                                         if _rc {
+186.                                                 tostring $ID, replace usedisplayformat format(%18.0g)
+187.                                         }
+188.                                         replace $ID = trim($ID)
+189.                                         gen str10  sample  = "`tag'"
+190.                                         gen str18  outcome = "`Y'"
+191.                                         gen str12  spec    = "`scode'"
+192.                                         rename A_v_log A_used
+193.                                         append using "$VMASTER1"
+194.                                         save "$VMASTER1", replace
+195.                                 restore
+196.                 
+.                 * Run heterogeneity only for FULL controls (IVX4)
+.                 if "`s'" == "full" & "`H_S'" != "" {
+197. 
+.                     noi di as txt "-> M1 Hetero IV v1: `Y' (`tag') [ IVX4 ] with H = `H_S'"
+198. 
+.                     local AENDO "A_v_log"
+199.                     local ZALL  "Z_pel Z_tbbm Z_tpi"
+200.                     local HMAIN ""
+201. 
+.                     foreach h of local H_S {
+202. 
+.                         cap drop A_X_`h'
+203.                         gen double A_X_`h' = A_v_log * `h' if !missing(A_v_log, `h')
+204.                         local AENDO "`AENDO' A_X_`h'"
+205. 
+.                         foreach z in Z_pel Z_tbbm Z_tpi {
+206.                             cap drop Z_X_`z'_`h'
+207.                             gen double Z_X_`z'_`h' = `z' * `h' if !missing(`z', `h')
+208.                             local ZALL "`ZALL' Z_X_`z'_`h'"
+209.                         }
+210. 
+.                         local HMAIN "`HMAIN' c.`h'"
+211.                     }
+212. 
+.                     * FULL controls for heterogeneity
+.                     local X_this "`X_full'"
+213.                     local PART_this ""
+214.                     if "`X_this'" != "" local PART_this "partial(`X_this')"
+215. 
+.                     cap noisily ivreghdfe `Y' (`AENDO' = `ZALL') `X_this' `HMAIN', `IVOPTS' `PART_this'
+216. 
+.                                         local tshort = upper(substr("`tag'",1,1))
+217.                                         if "`tag'" == "COAST" local tshort "C"
+218.                                         if "`tag'" == "ALL"   local tshort "A"
+219. 
+.                                         local ycode = upper(substr("`Y'",1,2))
+220.                                         if "`Y'" == "Wbasic_z"      local ycode "WB"
+221.                                         if "`Y'" == "lnpov_z"       local ycode "LP"
+222. 
+.                                         local estname = "v1_m1X4`tshort'`ycode'"
+223.                                         est store `estname'
+224. 
+.                                         esttab `estname' using "$outdir/tables/V1_M1_iv_hetero_`tag'_`Y'_IVX4.rtf", replace ///
+>                                                 se b(%9.4f) se(%9.4f) star(* 0.10 ** 0.05 *** 0.01) ///
+>                                                 title("M1 Hetero IV (IVX4) v1: `Y' on A_v_log + A×H (`tag')") ///
+>                                                 scalars(N r2) compress
+225. 
+.                                         cap drop W_hat uhat beta_vill A_contrib
+226.                                         predict double W_hat if e(sample), xb
+227.                                         predict double uhat  if e(sample), resid
+228. 
+.                                         gen double beta_vill = _b[A_v_log] if e(sample)
+229.                                         foreach h of local H_S {
+230.                                                 replace beta_vill = beta_vill + (_b[A_X_`h'] * `h') if e(sample) & !missing(`h')
+231.                                         }
+232.                                         gen double A_contrib = beta_vill * A_v_log if e(sample) & !missing(A_v_log)
+233. 
+.                                         preserve
+234.                                                 cap drop A_used
+235.                                                 gen double A_used = A_v_log if e(sample) & !missing(A_v_log)
+236.                                                 keep $ID A_used W_hat uhat beta_vill A_contrib `H_S'
+237.                                                 cap confirm string variable $ID
+238.                                                 if _rc {
+239.                                                         tostring $ID, replace usedisplayformat format(%18.0g)
+240.                                                 }
+241.                                                 replace $ID = trim($ID)
+242. 
+.                                                 gen str10  sample  = "`tag'"
+243.                                                 gen str18  outcome = "`Y'"
+244.                                                 gen str12  spec    = "IVX4"
+245. 
+.                                                 append using "$VMASTER1"
+246.                                                 save "$VMASTER1", replace
+247.                                         restore
+248.                     
+.                 }
+249.             }
+250.         }
+251.     }
+252.         
+.         if $DO_M1 == 0 {
+253. 
+.         local M1SPECS "edu hlth util base none edu_nb hlth_nb util_nb"
+254. 
+.         foreach Y of local YLIST_S {
+255. 
+.             foreach s of local M1SPECS {
+256.                 local scode ""
+257.                 if "`s'" == "edu"     local scode "IVH_EDU"
+258.                 if "`s'" == "hlth"    local scode "IVH_HLTH"
+259.                 if "`s'" == "util"    local scode "IVH_UTIL"
+260.                 if "`s'" == "base"    local scode "IVH_BASE"
+261.                 if "`s'" == "none"    local scode "IVH_NONE"
+262.                 if "`s'" == "edu_nb"  local scode "IVH_EDU_NB"
+263.                 if "`s'" == "hlth_nb" local scode "IVH_HLTH_NB"
+264.                 if "`s'" == "util_nb" local scode "IVH_UTIL_NB"
+265.                 if "`scode'" == "" continue
+266. 
+.                 local X_this "`X_`s''"
+267.                 local PART_this ""
+268.                 if "`X_this'" != "" local PART_this "partial(`X_this')"
+269. 
+.                 noi di as txt "-> M1 Homog IV v2: `Y' (`tag') [ `scode' ]"
+270. 
+.                 cap noisily ivreghdfe `Y' (A_v_log = Z_pel Z_tbbm Z_tpi) `X_this', `IVOPTS' `PART_this'
+271.                                 
+.                                 local tshort = upper(substr("`tag'",1,1))
+272.                                 if "`tag'" == "COAST" local tshort "C"
+273.                                 if "`tag'" == "ALL"   local tshort "A"
+274. 
+.                                 local ycode = upper(substr("`Y'",1,2))
+275.                                 if "`Y'" == "Wbasic_z"      local ycode "WB"
+276.                                 if "`Y'" == "lnpov_z"       local ycode "LP"
+277. 
+.                                 local sshort ""
+278.                                 if "`s'" == "edu"     local sshort "E"
+279.                                 if "`s'" == "hlth"    local sshort "H"
+280.                                 if "`s'" == "util"    local sshort "U"
+281.                                 if "`s'" == "base"    local sshort "B"
+282.                                 if "`s'" == "none"    local sshort "N"
+283.                                 if "`s'" == "edu_nb"  local sshort "e"
+284.                                 if "`s'" == "hlth_nb" local sshort "h"
+285.                                 if "`s'" == "util_nb" local sshort "u"
+286. 
+.                                 local estname = "v2_m1`sshort'`tshort'`ycode'"
+287.                                 est store `estname'
+288. 
+.                                 esttab `estname' using "$outdir/tables/V2_M1_iv_homog_`tag'_`Y'_`scode'.rtf", replace ///
+>                                         se b(%9.4f) se(%9.4f) star(* 0.10 ** 0.05 *** 0.01) ///
+>                                         title("M1 Homog IV (`scode') v2: `Y' on A_v_log (`tag')") ///
+>                                         scalars(N r2) compress
+289. 
+.                                 cap drop W_hat uhat beta_vill A_contrib
+290.                                 predict double W_hat if e(sample), xb
+291.                                 predict double uhat  if e(sample), resid
+292.                                 gen double beta_vill = _b[A_v_log] if e(sample)
+293.                                 gen double A_contrib = beta_vill * A_v_log if e(sample) & !missing(A_v_log)
+294. 
+.                                 preserve
+295.                                         keep $ID A_v_log W_hat uhat beta_vill A_contrib
+296.                                         cap confirm string variable $ID
+297.                                         if _rc {
+298.                                                 tostring $ID, replace usedisplayformat format(%18.0g)
+299.                                         }
+300.                                         replace $ID = trim($ID)
+301.                                         gen str10  sample  = "`tag'"
+302.                                         gen str18  outcome = "`Y'"
+303.                                         gen str12  spec    = "`scode'"
+304.                                         rename A_v_log A_used
+305.                                         append using "$VMASTER2"
+306.                                         save "$VMASTER2", replace
+307.                                 restore
+308.                 
+.                 * Run heterogeneity only for FULL controls (IVX4)
+.                 if "`s'" == "full" & "`H_S'" != "" {
+309. 
+.                     noi di as txt "-> M1 Hetero IV v2: `Y' (`tag') [ IVX4 ] with H = `H_S'"
+310. 
+.                     local AENDO "A_v_log"
+311.                     local ZALL  "Z_pel Z_tbbm Z_tpi"
+312.                     local HMAIN ""
+313. 
+.                     foreach h of local H_S {
+314. 
+.                         cap drop A_X_`h'
+315.                         gen double A_X_`h' = A_v_log * `h' if !missing(A_v_log, `h')
+316.                         local AENDO "`AENDO' A_X_`h'"
+317. 
+.                         foreach z in Z_pel Z_tbbm Z_tpi {
+318.                             cap drop Z_X_`z'_`h'
+319.                             gen double Z_X_`z'_`h' = `z' * `h' if !missing(`z', `h')
+320.                             local ZALL "`ZALL' Z_X_`z'_`h'"
+321.                         }
+322. 
+.                         local HMAIN "`HMAIN' c.`h'"
+323.                     }
+324. 
+.                     * FULL controls for heterogeneity
+.                     local X_this "`X_full'"
+325.                     local PART_this ""
+326.                     if "`X_this'" != "" local PART_this "partial(`X_this')"
+327. 
+.                     cap noisily ivreghdfe `Y' (`AENDO' = `ZALL') `X_this' `HMAIN', `IVOPTS' `PART_this'
+328. 
+.                                         local tshort = upper(substr("`tag'",1,1))
+329.                                         if "`tag'" == "COAST" local tshort "C"
+330.                                         if "`tag'" == "ALL"   local tshort "A"
+331. 
+.                                         local ycode = upper(substr("`Y'",1,2))
+332.                                         if "`Y'" == "Wbasic_z"      local ycode "WB"
+333.                                         if "`Y'" == "lnpov_z"       local ycode "LP"
+334. 
+.                                         local estname = "v2_m1X4`tshort'`ycode'"
+335.                                         est store `estname'
+336. 
+.                                         esttab `estname' using "$outdir/tables/V2_M1_iv_hetero_`tag'_`Y'_IVX4.rtf", replace ///
+>                                                 se b(%9.4f) se(%9.4f) star(* 0.10 ** 0.05 *** 0.01) ///
+>                                                 title("M1 Hetero IV (IVX4) v2: `Y' on A_v_log + A×H (`tag')") ///
+>                                                 scalars(N r2) compress
+337. 
+.                                         cap drop W_hat uhat beta_vill A_contrib
+338.                                         predict double W_hat if e(sample), xb
+339.                                         predict double uhat  if e(sample), resid
+340. 
+.                                         gen double beta_vill = _b[A_v_log] if e(sample)
+341.                                         foreach h of local H_S {
+342.                                                 replace beta_vill = beta_vill + (_b[A_X_`h'] * `h') if e(sample) & !missing(`h')
+343.                                         }
+344.                                         gen double A_contrib = beta_vill * A_v_log if e(sample) & !missing(A_v_log)
+345. 
+.                                         preserve
+346.                                                 cap drop A_used
+347.                                                 gen double A_used = A_v_log if e(sample) & !missing(A_v_log)
+348.                                                 keep $ID A_used W_hat uhat beta_vill A_contrib `H_S'
+349.                                                 cap confirm string variable $ID
+350.                                                 if _rc {
+351.                                                         tostring $ID, replace usedisplayformat format(%18.0g)
+352.                                                 }
+353.                                                 replace $ID = trim($ID)
+354. 
+.                                                 gen str10  sample  = "`tag'"
+355.                                                 gen str18  outcome = "`Y'"
+356.                                                 gen str12  spec    = "IVX4"
+357. 
+.                                                 append using "$VMASTER2"
+358.                                                 save "$VMASTER2", replace
+359.                                         restore
+360.                     
+.                 }
+361.             }
+362.         }
+363.     }
+364.         
+. end
+
+.         /****************************************************************************************
+>     M2. REDUCED FORM
+>     ****************************************************************************************/
+.     if $DO_M2 == 1 {
+.         foreach Y of local YLIST_S {
+  2.             noi di as txt "-> M2 Reduced form v1: `Y' (`tag')"
+  3.             cap noisily reghdfe `Y' Z_pel Z_tbbm Z_tpi `X_S', absorb($FE) vce(cluster $CLUST)
+  4.             if !_rc {
+  5.                 est store M2_`tag'_`Y'
+  6.                 esttab M2_`tag'_`Y' using "$outdir/tables/V1_M2_reducedform_`tag'_`Y'.rtf", replace ///
+>                     se b(%9.4f) se(%9.4f) star(* 0.10 ** 0.05 *** 0.01) ///
+>                     title("M2 Reduced form: `Y' on Z + X + FE (`tag')") ///
+>                     scalars(N r2) compress
+  7.             }
+  8.         }
+.     }
+
+.         
+.         if $DO_M2 == 0 {
+.         foreach Y of local YLIST_S {
+  2.             noi di as txt "-> M2 Reduced form v2: `Y' (`tag')"
+  3.             cap noisily reghdfe `Y' Z_pel Z_tbbm Z_tpi `X_S', absorb($FE) vce(cluster $CLUST)
+  4.             if !_rc {
+  5.                 est store M2_`tag'_`Y'
+  6.                 esttab M2_`tag'_`Y' using "$outdir/tables/V2_M2_reducedform_`tag'_`Y'.rtf", replace ///
+>                     se b(%9.4f) se(%9.4f) star(* 0.10 ** 0.05 *** 0.01) ///
+>                     title("M2 Reduced form v2: `Y' on Z + X + FE (`tag')") ///
+>                     scalars(N r2) compress
+  7.             }
+  8.         }
+.     }
+
+. 
+.     /****************************************************************************************
+>     M3. NAIVE OLS (benchmark)
+>     ****************************************************************************************/
+.     if $DO_M3 == 1 {
+.         foreach Y of local YLIST_S {
+  2.             noi di as txt "-> M3 OLS v1: `Y' (`tag')"
+  3.             cap noisily reghdfe `Y' A_v_log `X_S', absorb($FE) vce(cluster $CLUST)
+  4.             if !_rc {
+  5.                 est store M3_`tag'_`Y'
+  6.                 esttab M3_`tag'_`Y' using "$outdir/tables/V1_M3_ols_`tag'_`Y'.rtf", replace ///
+>                     se b(%9.4f) se(%9.4f) star(* 0.10 ** 0.05 *** 0.01) ///
+>                     title("M3 OLS v1: `Y' on A_v_log + X + FE (`tag')") ///
+>                     scalars(N r2) compress
+  7.             }
+  8.         }
+.     }
+
+.         
+.         if $DO_M3 == 0 {
+.         foreach Y of local YLIST_S {
+  2.             noi di as txt "-> M3 OLS v2: `Y' (`tag')"
+  3.             cap noisily reghdfe `Y' A_v_log `X_S', absorb($FE) vce(cluster $CLUST)
+  4.             if !_rc {
+  5.                 est store M3_`tag'_`Y'
+  6.                 esttab M3_`tag'_`Y' using "$outdir/tables/V2_M3_ols_`tag'_`Y'.rtf", replace ///
+>                     se b(%9.4f) se(%9.4f) star(* 0.10 ** 0.05 *** 0.01) ///
+>                     title("M3 OLS v2: `Y' on A_v_log + X + FE (`tag')") ///
+>                     scalars(N r2) compress
+  7.             }
+  8.         }
+.     }
+
+. 
+. 
+. /****************************************************************************************
+> H. RUN SUITE 
+> ****************************************************************************************/
+. 
+. if $RUN_COAST == 1 {
+.     _run_one_sample, dataset("$DATA_COAST") tag("COAST")
+(0 real changes made)
+(0 real changes made)
+(0 observations deleted)
+(0 observations deleted)
+
+(0 observations deleted)
+(0 observations deleted)
+
+(0 observations deleted)
+(0 observations deleted)
+
+(0 observations deleted)
+(0 observations deleted)
+
+(0 observations deleted)
+(0 observations deleted)
+
+(0 observations deleted)
+(0 observations deleted)
+
+(0 observations deleted)
+(0 observations deleted)
+
+(0 observations deleted)
+(0 observations deleted)
+18 20
+Recode rare levels in r403a_c (<=1 kab cluster) -> 99: 18 20
+(3 changes made to r403a_c)
+(0 observations deleted)
+(0 observations deleted)
+
+(0 observations deleted)
+(0 observations deleted)
+
+-> V1 M0 First stage (COAST)
+(file /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M0_firststage_COAST.rtf not found)
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M0_firststage_COAST.rtf)
+-> M1 Homog IV v1: Wbasic_z (COAST) [ IVH_EDU ]
+(dropped 2 singleton observations)
+Warning - collinearities detected
+Vars dropped:       4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         325                Number of obs =    12966
+                                                      F(  1,   324) =    11.44
+                                                      Prob > F      =   0.0008
+Total (centered) SS     =  2188.987949                Centered R2   =  -0.0065
+Total (uncentered) SS   =  2188.987949                Uncentered R2 =  -0.0065
+Residual SS             =  2203.190572                Root MSE      =     .413
+
+------------------------------------------------------------------------------
+             |               Robust
+    Wbasic_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |   .0964174   .0285051     3.38   0.001     .0403391    .1524958
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             35.012
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              935.604
+                         (Kleibergen-Paap rk Wald F statistic):         26.257
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         0.023
+                                                   Chi-sq(2) P-val =    0.9884
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       2.r308b1d_c 2.r308b1e_c 2.r309a_c 3.r309a_c 1.r309b_c
+                      2.r309b_c 3.r309b_c 1.r309d_c 2.r309d_c 3.r309d_c
+                      1.r309e_c 2.r310_c 2.r403a_c 3.r403a_c 4.r403a_c 6.r403a_c
+                      7.r403a_c 8.r403a_c 9.r403a_c 14.r403a_c 15.r403a_c
+                      16.r403a_c 17.r403a_c 19.r403a_c 99.r403a_c 1.r403c1_c
+                      2.r403c1_c 3.r403c1_c 4.r403c1_c 1.r403c2_c 2.r403c2_c
+                      3.r403c2_c r701ak3_b r701ak4_b r701bk3_b r701bk4_b
+                      r701ck4_b r701dk2_b r701dk3_b r701dk4_b r701ek4_b
+                      r701fk4_b r701gk4_b r701hk4_b r701ik4_b r701jk4_b
+                      r701kk4_b r701ok3_b r701qk3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       325         325           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_COAST_Wbasic_z_IVH_EDU.rtf)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: Wbasic_z (COAST) [ IVH_HLTH ]
+(dropped 2 singleton observations)
+Warning - collinearities detected
+Vars dropped:       4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c r711ck4_b
+                    r711ek3_b r711ek4_b r711fk4_b r711jk4_b
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         325                Number of obs =    12966
+                                                      F(  1,   324) =    61.43
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  2430.691337                Centered R2   =  -0.0217
+Total (uncentered) SS   =  2430.691337                Uncentered R2 =  -0.0217
+Residual SS             =  2483.367017                Root MSE      =    .4385
+
+------------------------------------------------------------------------------
+             |               Robust
+    Wbasic_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |   .2196337   .0280237     7.84   0.000     .1645023    .2747652
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             56.147
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):             1546.383
+                         (Kleibergen-Paap rk Wald F statistic):         50.073
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         0.589
+                                                   Chi-sq(2) P-val =    0.7449
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       2.r308b1d_c 2.r308b1e_c 2.r309a_c 3.r309a_c 1.r309b_c
+                      2.r309b_c 3.r309b_c 1.r309d_c 2.r309d_c 3.r309d_c
+                      1.r309e_c 2.r310_c 2.r403a_c 3.r403a_c 4.r403a_c 6.r403a_c
+                      7.r403a_c 8.r403a_c 9.r403a_c 14.r403a_c 15.r403a_c
+                      16.r403a_c 17.r403a_c 19.r403a_c 99.r403a_c 1.r403c1_c
+                      2.r403c1_c 3.r403c1_c 4.r403c1_c 1.r403c2_c 2.r403c2_c
+                      3.r403c2_c r711ak3_b r711ak4_b r711bk3_b r711bk4_b
+                      r711ck3_b r711dk3_b r711dk4_b r711fk3_b r711gk3_b
+                      r711gk4_b r711hk3_b r711hk4_b r711ik3_b r711ik4_b
+                      r711jk3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c r711ck4_b
+                      r711ek3_b r711ek4_b r711fk4_b r711jk4_b
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       325         325           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_COAST_Wbasic_z_IVH_HLTH.rtf)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: Wbasic_z (COAST) [ IVH_UTIL ]
+(dropped 2 singleton observations)
+Warning - collinearities detected
+Vars dropped:       4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         325                Number of obs =    12966
+                                                      F(  1,   324) =    63.08
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  2436.525461                Centered R2   =  -0.0208
+Total (uncentered) SS   =  2436.525461                Uncentered R2 =  -0.0208
+Residual SS             =  2487.170737                Root MSE      =    .4386
+
+------------------------------------------------------------------------------
+             |               Robust
+    Wbasic_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |   .2208621   .0278092     7.94   0.000     .1661527    .2755715
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             56.664
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):             1554.308
+                         (Kleibergen-Paap rk Wald F statistic):         50.303
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         0.700
+                                                   Chi-sq(2) P-val =    0.7048
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       2.r308b1d_c 2.r308b1e_c 2.r309a_c 3.r309a_c 1.r309b_c
+                      2.r309b_c 3.r309b_c 1.r309d_c 2.r309d_c 3.r309d_c
+                      1.r309e_c 2.r310_c 2.r403a_c 3.r403a_c 4.r403a_c 6.r403a_c
+                      7.r403a_c 8.r403a_c 9.r403a_c 14.r403a_c 15.r403a_c
+                      16.r403a_c 17.r403a_c 19.r403a_c 99.r403a_c 1.r403c1_c
+                      2.r403c1_c 3.r403c1_c 4.r403c1_c 1.r403c2_c 2.r403c2_c
+                      3.r403c2_c r509c1_b r509c2_b r509c3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       325         325           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_COAST_Wbasic_z_IVH_UTIL.rtf)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: Wbasic_z (COAST) [ IVH_BASE ]
+(dropped 2 singleton observations)
+Warning - collinearities detected
+Vars dropped:       4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         325                Number of obs =    12966
+                                                      F(  1,   324) =    62.59
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  2439.738806                Centered R2   =  -0.0214
+Total (uncentered) SS   =  2439.738806                Uncentered R2 =  -0.0214
+Residual SS             =  2491.947813                Root MSE      =     .439
+
+------------------------------------------------------------------------------
+             |               Robust
+    Wbasic_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |   .2212375   .0279649     7.91   0.000     .1662218    .2762532
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             56.634
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):             1553.581
+                         (Kleibergen-Paap rk Wald F statistic):         50.239
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         0.757
+                                                   Chi-sq(2) P-val =    0.6848
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       2.r308b1d_c 2.r308b1e_c 2.r309a_c 3.r309a_c 1.r309b_c
+                      2.r309b_c 3.r309b_c 1.r309d_c 2.r309d_c 3.r309d_c
+                      1.r309e_c 2.r310_c 2.r403a_c 3.r403a_c 4.r403a_c 6.r403a_c
+                      7.r403a_c 8.r403a_c 9.r403a_c 14.r403a_c 15.r403a_c
+                      16.r403a_c 17.r403a_c 19.r403a_c 99.r403a_c 1.r403c1_c
+                      2.r403c1_c 3.r403c1_c 4.r403c1_c 1.r403c2_c 2.r403c2_c
+                      3.r403c2_c _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       325         325           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_COAST_Wbasic_z_IVH_BASE.rtf)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: Wbasic_z (COAST) [ IVH_NONE ]
+(dropped 2 singleton observations)
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         325                Number of obs =    12966
+                                                      F(  1,   324) =    89.16
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  2867.056115                Centered R2   =  -0.0381
+Total (uncentered) SS   =  2867.056115                Uncentered R2 =  -0.0381
+Residual SS             =   2976.36273                Root MSE      =    .4792
+
+------------------------------------------------------------------------------
+             |               Robust
+    Wbasic_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |   .3372162   .0357125     9.44   0.000     .2669584    .4074739
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             56.558
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):             1888.434
+                         (Kleibergen-Paap rk Wald F statistic):         54.892
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         1.627
+                                                   Chi-sq(2) P-val =    0.4433
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       325         325           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_COAST_Wbasic_z_IVH_NONE.rtf)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: Wbasic_z (COAST) [ IVH_EDU_NB ]
+(dropped 2 singleton observations)
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         325                Number of obs =    12966
+                                                      F(  1,   324) =    18.15
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  2322.380031                Centered R2   =  -0.0160
+Total (uncentered) SS   =  2322.380031                Uncentered R2 =  -0.0160
+Residual SS             =  2359.649819                Root MSE      =    .4269
+
+------------------------------------------------------------------------------
+             |               Robust
+    Wbasic_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |   .1406759   .0330219     4.26   0.000     .0757116    .2056402
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             35.096
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              990.835
+                         (Kleibergen-Paap rk Wald F statistic):         26.912
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         0.144
+                                                   Chi-sq(2) P-val =    0.9306
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       r701ak3_b r701ak4_b r701bk3_b r701bk4_b r701ck4_b
+                      r701dk2_b r701dk3_b r701dk4_b r701ek4_b r701fk4_b
+                      r701gk4_b r701hk4_b r701ik4_b r701jk4_b r701kk4_b
+                      r701ok3_b r701qk3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       325         325           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_COAST_Wbasic_z_IVH_EDU_NB.rtf)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: Wbasic_z (COAST) [ IVH_HLTH_NB ]
+(dropped 2 singleton observations)
+Warning - collinearities detected
+Vars dropped:       r711ck4_b r711ek3_b r711ek4_b r711fk4_b r711jk4_b
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         325                Number of obs =    12966
+                                                      F(  1,   324) =    87.91
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  2851.225948                Centered R2   =  -0.0388
+Total (uncentered) SS   =  2851.225948                Uncentered R2 =  -0.0388
+Residual SS             =  2961.861647                Root MSE      =    .4783
+
+------------------------------------------------------------------------------
+             |               Robust
+    Wbasic_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |   .3348381   .0357119     9.38   0.000     .2645816    .4050945
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             56.126
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):             1876.723
+                         (Kleibergen-Paap rk Wald F statistic):         54.635
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         1.430
+                                                   Chi-sq(2) P-val =    0.4892
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       r711ak3_b r711ak4_b r711bk3_b r711bk4_b r711ck3_b
+                      r711dk3_b r711dk4_b r711fk3_b r711gk3_b r711gk4_b
+                      r711hk3_b r711hk4_b r711ik3_b r711ik4_b r711jk3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    r711ck4_b r711ek3_b r711ek4_b r711fk4_b r711jk4_b
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       325         325           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_COAST_Wbasic_z_IVH_HLTH_NB.rtf)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: Wbasic_z (COAST) [ IVH_UTIL_NB ]
+(dropped 2 singleton observations)
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         325                Number of obs =    12966
+                                                      F(  1,   324) =    89.60
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  2861.793439                Centered R2   =  -0.0371
+Total (uncentered) SS   =  2861.793439                Uncentered R2 =  -0.0371
+Residual SS             =  2967.887167                Root MSE      =    .4785
+
+------------------------------------------------------------------------------
+             |               Robust
+    Wbasic_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |   .3364488   .0355438     9.47   0.000      .266523    .4063746
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             56.542
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):             1889.533
+                         (Kleibergen-Paap rk Wald F statistic):         54.943
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         1.541
+                                                   Chi-sq(2) P-val =    0.4627
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       r509c1_b r509c2_b r509c3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       325         325           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_COAST_Wbasic_z_IVH_UTIL_NB.rtf)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: lnpov_z (COAST) [ IVH_EDU ]
+(dropped 2 singleton observations)
+Warning - collinearities detected
+Vars dropped:       4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         325                Number of obs =    12966
+                                                      F(  1,   324) =     4.01
+                                                      Prob > F      =   0.0462
+Total (centered) SS     =  5221.537848                Centered R2   =  -0.0020
+Total (uncentered) SS   =  5221.537848                Uncentered R2 =  -0.0020
+Residual SS             =  5231.823898                Root MSE      =    .6365
+
+------------------------------------------------------------------------------
+             |               Robust
+     lnpov_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |  -.1131861    .056556    -2.00   0.046    -.2244494   -.0019228
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             35.012
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              935.604
+                         (Kleibergen-Paap rk Wald F statistic):         26.257
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         1.437
+                                                   Chi-sq(2) P-val =    0.4875
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       2.r308b1d_c 2.r308b1e_c 2.r309a_c 3.r309a_c 1.r309b_c
+                      2.r309b_c 3.r309b_c 1.r309d_c 2.r309d_c 3.r309d_c
+                      1.r309e_c 2.r310_c 2.r403a_c 3.r403a_c 4.r403a_c 6.r403a_c
+                      7.r403a_c 8.r403a_c 9.r403a_c 14.r403a_c 15.r403a_c
+                      16.r403a_c 17.r403a_c 19.r403a_c 99.r403a_c 1.r403c1_c
+                      2.r403c1_c 3.r403c1_c 4.r403c1_c 1.r403c2_c 2.r403c2_c
+                      3.r403c2_c r701ak3_b r701ak4_b r701bk3_b r701bk4_b
+                      r701ck4_b r701dk2_b r701dk3_b r701dk4_b r701ek4_b
+                      r701fk4_b r701gk4_b r701hk4_b r701ik4_b r701jk4_b
+                      r701kk4_b r701ok3_b r701qk3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       325         325           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_COAST_lnpov_z_IVH_EDU.rtf)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: lnpov_z (COAST) [ IVH_HLTH ]
+(dropped 2 singleton observations)
+Warning - collinearities detected
+Vars dropped:       4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c r711ck4_b
+                    r711ek3_b r711ek4_b r711fk4_b r711jk4_b
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         325                Number of obs =    12966
+                                                      F(  1,   324) =    44.61
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =   6104.03432                Centered R2   =  -0.0194
+Total (uncentered) SS   =   6104.03432                Uncentered R2 =  -0.0194
+Residual SS             =  6222.432958                Root MSE      =    .6941
+
+------------------------------------------------------------------------------
+             |               Robust
+     lnpov_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |  -.3440189   .0515056    -6.68   0.000    -.4453465   -.2426913
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             56.147
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):             1546.383
+                         (Kleibergen-Paap rk Wald F statistic):         50.073
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         1.773
+                                                   Chi-sq(2) P-val =    0.4122
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       2.r308b1d_c 2.r308b1e_c 2.r309a_c 3.r309a_c 1.r309b_c
+                      2.r309b_c 3.r309b_c 1.r309d_c 2.r309d_c 3.r309d_c
+                      1.r309e_c 2.r310_c 2.r403a_c 3.r403a_c 4.r403a_c 6.r403a_c
+                      7.r403a_c 8.r403a_c 9.r403a_c 14.r403a_c 15.r403a_c
+                      16.r403a_c 17.r403a_c 19.r403a_c 99.r403a_c 1.r403c1_c
+                      2.r403c1_c 3.r403c1_c 4.r403c1_c 1.r403c2_c 2.r403c2_c
+                      3.r403c2_c r711ak3_b r711ak4_b r711bk3_b r711bk4_b
+                      r711ck3_b r711dk3_b r711dk4_b r711fk3_b r711gk3_b
+                      r711gk4_b r711hk3_b r711hk4_b r711ik3_b r711ik4_b
+                      r711jk3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c r711ck4_b
+                      r711ek3_b r711ek4_b r711fk4_b r711jk4_b
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       325         325           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_COAST_lnpov_z_IVH_HLTH.rtf)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: lnpov_z (COAST) [ IVH_UTIL ]
+(dropped 2 singleton observations)
+Warning - collinearities detected
+Vars dropped:       4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         325                Number of obs =    12966
+                                                      F(  1,   324) =    46.05
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =   6127.63561                Centered R2   =  -0.0184
+Total (uncentered) SS   =   6127.63561                Uncentered R2 =  -0.0184
+Residual SS             =  6240.507463                Root MSE      =    .6947
+
+------------------------------------------------------------------------------
+             |               Robust
+     lnpov_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |  -.3448785   .0508232    -6.79   0.000    -.4448636   -.2448934
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             56.664
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):             1554.308
+                         (Kleibergen-Paap rk Wald F statistic):         50.303
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         1.949
+                                                   Chi-sq(2) P-val =    0.3773
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       2.r308b1d_c 2.r308b1e_c 2.r309a_c 3.r309a_c 1.r309b_c
+                      2.r309b_c 3.r309b_c 1.r309d_c 2.r309d_c 3.r309d_c
+                      1.r309e_c 2.r310_c 2.r403a_c 3.r403a_c 4.r403a_c 6.r403a_c
+                      7.r403a_c 8.r403a_c 9.r403a_c 14.r403a_c 15.r403a_c
+                      16.r403a_c 17.r403a_c 19.r403a_c 99.r403a_c 1.r403c1_c
+                      2.r403c1_c 3.r403c1_c 4.r403c1_c 1.r403c2_c 2.r403c2_c
+                      3.r403c2_c r509c1_b r509c2_b r509c3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       325         325           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_COAST_lnpov_z_IVH_UTIL.rtf)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: lnpov_z (COAST) [ IVH_BASE ]
+(dropped 2 singleton observations)
+Warning - collinearities detected
+Vars dropped:       4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         325                Number of obs =    12966
+                                                      F(  1,   324) =    45.93
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  6130.448504                Centered R2   =  -0.0188
+Total (uncentered) SS   =  6130.448504                Uncentered R2 =  -0.0188
+Residual SS             =  6245.670666                Root MSE      =     .695
+
+------------------------------------------------------------------------------
+             |               Robust
+     lnpov_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |  -.3452765    .050947    -6.78   0.000    -.4455051   -.2450478
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             56.634
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):             1553.581
+                         (Kleibergen-Paap rk Wald F statistic):         50.239
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         1.970
+                                                   Chi-sq(2) P-val =    0.3735
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       2.r308b1d_c 2.r308b1e_c 2.r309a_c 3.r309a_c 1.r309b_c
+                      2.r309b_c 3.r309b_c 1.r309d_c 2.r309d_c 3.r309d_c
+                      1.r309e_c 2.r310_c 2.r403a_c 3.r403a_c 4.r403a_c 6.r403a_c
+                      7.r403a_c 8.r403a_c 9.r403a_c 14.r403a_c 15.r403a_c
+                      16.r403a_c 17.r403a_c 19.r403a_c 99.r403a_c 1.r403c1_c
+                      2.r403c1_c 3.r403c1_c 4.r403c1_c 1.r403c2_c 2.r403c2_c
+                      3.r403c2_c _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       325         325           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_COAST_lnpov_z_IVH_BASE.rtf)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: lnpov_z (COAST) [ IVH_NONE ]
+(dropped 2 singleton observations)
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         325                Number of obs =    12966
+                                                      F(  1,   324) =    65.65
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  6452.095794                Centered R2   =  -0.0199
+Total (uncentered) SS   =  6452.095794                Uncentered R2 =  -0.0199
+Residual SS             =  6580.686329                Root MSE      =    .7125
+
+------------------------------------------------------------------------------
+             |               Robust
+     lnpov_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |  -.4110209   .0507279    -8.10   0.000    -.5108186   -.3112232
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             56.558
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):             1888.434
+                         (Kleibergen-Paap rk Wald F statistic):         54.892
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         2.127
+                                                   Chi-sq(2) P-val =    0.3452
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       325         325           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_COAST_lnpov_z_IVH_NONE.rtf)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: lnpov_z (COAST) [ IVH_EDU_NB ]
+(dropped 2 singleton observations)
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         325                Number of obs =    12966
+                                                      F(  1,   324) =     4.20
+                                                      Prob > F      =   0.0412
+Total (centered) SS     =  5261.923519                Centered R2   =  -0.0020
+Total (uncentered) SS   =  5261.923519                Uncentered R2 =  -0.0020
+Residual SS             =  5272.554117                Root MSE      =    .6382
+
+------------------------------------------------------------------------------
+             |               Robust
+     lnpov_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |  -.1141014   .0556561    -2.05   0.041    -.2235944   -.0046084
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             35.096
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              990.835
+                         (Kleibergen-Paap rk Wald F statistic):         26.912
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         1.841
+                                                   Chi-sq(2) P-val =    0.3983
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       r701ak3_b r701ak4_b r701bk3_b r701bk4_b r701ck4_b
+                      r701dk2_b r701dk3_b r701dk4_b r701ek4_b r701fk4_b
+                      r701gk4_b r701hk4_b r701ik4_b r701jk4_b r701kk4_b
+                      r701ok3_b r701qk3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       325         325           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_COAST_lnpov_z_IVH_EDU_NB.rtf)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: lnpov_z (COAST) [ IVH_HLTH_NB ]
+(dropped 2 singleton observations)
+Warning - collinearities detected
+Vars dropped:       r711ck4_b r711ek3_b r711ek4_b r711fk4_b r711jk4_b
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         325                Number of obs =    12966
+                                                      F(  1,   324) =    63.91
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  6417.202456                Centered R2   =  -0.0207
+Total (uncentered) SS   =  6417.202456                Uncentered R2 =  -0.0207
+Residual SS             =  6550.247952                Root MSE      =    .7112
+
+------------------------------------------------------------------------------
+             |               Robust
+     lnpov_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |   -.408633    .051116    -7.99   0.000    -.5091941   -.3080719
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             56.126
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):             1876.723
+                         (Kleibergen-Paap rk Wald F statistic):         54.635
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         1.917
+                                                   Chi-sq(2) P-val =    0.3834
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       r711ak3_b r711ak4_b r711bk3_b r711bk4_b r711ck3_b
+                      r711dk3_b r711dk4_b r711fk3_b r711gk3_b r711gk4_b
+                      r711hk3_b r711hk4_b r711ik3_b r711ik4_b r711jk3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    r711ck4_b r711ek3_b r711ek4_b r711fk4_b r711jk4_b
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       325         325           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_COAST_lnpov_z_IVH_HLTH_NB.rtf)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: lnpov_z (COAST) [ IVH_UTIL_NB ]
+(dropped 2 singleton observations)
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         325                Number of obs =    12966
+                                                      F(  1,   324) =    65.69
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =   6447.43935                Centered R2   =  -0.0194
+Total (uncentered) SS   =   6447.43935                Uncentered R2 =  -0.0194
+Residual SS             =  6572.364306                Root MSE      =    .7121
+
+------------------------------------------------------------------------------
+             |               Robust
+     lnpov_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |  -.4102245    .050615    -8.10   0.000    -.5097999    -.310649
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):             56.542
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):             1889.533
+                         (Kleibergen-Paap rk Wald F statistic):         54.943
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         2.107
+                                                   Chi-sq(2) P-val =    0.3486
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       r509c1_b r509c2_b r509c3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       325         325           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_COAST_lnpov_z_IVH_UTIL_NB.rtf)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(2 missing values generated)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+. }
+
+. 
+. if $RUN_ALL == 0 {
+.     _run_one_sample, dataset("$DATA_ALL") tag("ALL")
+(0 real changes made)
+(0 real changes made)
+(0 observations deleted)
+(0 observations deleted)
+
+(0 observations deleted)
+(0 observations deleted)
+
+(0 observations deleted)
+(0 observations deleted)
+
+(0 observations deleted)
+(0 observations deleted)
+
+(0 observations deleted)
+(0 observations deleted)
+
+(0 observations deleted)
+(0 observations deleted)
+
+(0 observations deleted)
+(0 observations deleted)
+
+(0 observations deleted)
+(0 observations deleted)
+11
+Recode rare levels in r403a_c (<=1 kab cluster) -> 99: 11
+(1 changes made to r403a_c)
+(0 observations deleted)
+(0 observations deleted)
+
+(0 observations deleted)
+(0 observations deleted)
+
+-> V1 M0 First stage (ALL)
+(file /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M0_firststage_ALL.rtf not found)
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M0_firststage_ALL.rtf)
+-> M1 Homog IV v1: Wbasic_z (ALL) [ IVH_EDU ]
+Warning - collinearities detected
+Vars dropped:       2.r308b1e_c 4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         514                Number of obs =    84276
+                                                      F(  1,   513) =     7.79
+                                                      Prob > F      =   0.0054
+Total (centered) SS     =    13610.103                Centered R2   =  -0.0002
+Total (uncentered) SS   =    13610.103                Uncentered R2 =  -0.0002
+Residual SS             =  13612.57768                Root MSE      =     .402
+
+------------------------------------------------------------------------------
+             |               Robust
+    Wbasic_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |   .0524545   .0187917     2.79   0.005     .0155364    .0893727
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):            135.089
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              1.3e+04
+                         (Kleibergen-Paap rk Wald F statistic):        126.335
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):         6.473
+                                                   Chi-sq(2) P-val =    0.0393
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       1.r308b1d_c 2.r308b1d_c 1.r308b1e_c 2.r309a_c 3.r309a_c
+                      1.r309b_c 2.r309b_c 3.r309b_c 1.r309d_c 2.r309d_c
+                      3.r309d_c 1.r309e_c 2.r310_c 2.r403a_c 3.r403a_c 4.r403a_c
+                      5.r403a_c 6.r403a_c 7.r403a_c 8.r403a_c 9.r403a_c
+                      13.r403a_c 14.r403a_c 15.r403a_c 16.r403a_c 17.r403a_c
+                      18.r403a_c 19.r403a_c 20.r403a_c 99.r403a_c 1.r403c1_c
+                      2.r403c1_c 3.r403c1_c 4.r403c1_c 1.r403c2_c 2.r403c2_c
+                      3.r403c2_c r701ak3_b r701ak4_b r701bk3_b r701bk4_b
+                      r701ck4_b r701dk2_b r701dk3_b r701dk4_b r701ek4_b
+                      r701fk4_b r701gk4_b r701hk4_b r701ik4_b r701jk4_b
+                      r701kk4_b r701ok3_b r701pk3_b r701qk3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    2.r308b1e_c 4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       514         514           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_ALL_Wbasic_z_IVH_EDU.rtf)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: Wbasic_z (ALL) [ IVH_HLTH ]
+Warning - collinearities detected
+Vars dropped:       2.r308b1e_c 4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+                    r711ek4_b
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         514                Number of obs =    84276
+                                                      F(  1,   513) =    54.64
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  15106.06717                Centered R2   =  -0.0034
+Total (uncentered) SS   =  15106.06717                Uncentered R2 =  -0.0034
+Residual SS             =  15157.35402                Root MSE      =    .4242
+
+------------------------------------------------------------------------------
+             |               Robust
+    Wbasic_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |   .1555398   .0210429     7.39   0.000      .114199    .1968806
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):            133.108
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              1.4e+04
+                         (Kleibergen-Paap rk Wald F statistic):        135.101
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):        33.070
+                                                   Chi-sq(2) P-val =    0.0000
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       1.r308b1d_c 2.r308b1d_c 1.r308b1e_c 2.r309a_c 3.r309a_c
+                      1.r309b_c 2.r309b_c 3.r309b_c 1.r309d_c 2.r309d_c
+                      3.r309d_c 1.r309e_c 2.r310_c 2.r403a_c 3.r403a_c 4.r403a_c
+                      5.r403a_c 6.r403a_c 7.r403a_c 8.r403a_c 9.r403a_c
+                      13.r403a_c 14.r403a_c 15.r403a_c 16.r403a_c 17.r403a_c
+                      18.r403a_c 19.r403a_c 20.r403a_c 99.r403a_c 1.r403c1_c
+                      2.r403c1_c 3.r403c1_c 4.r403c1_c 1.r403c2_c 2.r403c2_c
+                      3.r403c2_c r711ak3_b r711ak4_b r711bk3_b r711bk4_b
+                      r711ck3_b r711ck4_b r711dk3_b r711dk4_b r711ek3_b
+                      r711fk3_b r711fk4_b r711gk3_b r711gk4_b r711hk3_b
+                      r711hk4_b r711ik3_b r711ik4_b r711jk3_b r711jk4_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    2.r308b1e_c 4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+                      r711ek4_b
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       514         514           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_ALL_Wbasic_z_IVH_HLTH.rtf)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: Wbasic_z (ALL) [ IVH_UTIL ]
+Warning - collinearities detected
+Vars dropped:       2.r308b1e_c 4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         514                Number of obs =    84276
+                                                      F(  1,   513) =    54.62
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  15104.60054                Centered R2   =  -0.0032
+Total (uncentered) SS   =  15104.60054                Uncentered R2 =  -0.0032
+Residual SS             =  15152.82177                Root MSE      =    .4241
+
+------------------------------------------------------------------------------
+             |               Robust
+    Wbasic_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |   .1553807   .0210248     7.39   0.000     .1140753     .196686
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):            133.193
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              1.4e+04
+                         (Kleibergen-Paap rk Wald F statistic):        135.148
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):        32.648
+                                                   Chi-sq(2) P-val =    0.0000
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       1.r308b1d_c 2.r308b1d_c 1.r308b1e_c 2.r309a_c 3.r309a_c
+                      1.r309b_c 2.r309b_c 3.r309b_c 1.r309d_c 2.r309d_c
+                      3.r309d_c 1.r309e_c 2.r310_c 2.r403a_c 3.r403a_c 4.r403a_c
+                      5.r403a_c 6.r403a_c 7.r403a_c 8.r403a_c 9.r403a_c
+                      13.r403a_c 14.r403a_c 15.r403a_c 16.r403a_c 17.r403a_c
+                      18.r403a_c 19.r403a_c 20.r403a_c 99.r403a_c 1.r403c1_c
+                      2.r403c1_c 3.r403c1_c 4.r403c1_c 1.r403c2_c 2.r403c2_c
+                      3.r403c2_c r509c1_b r509c2_b r509c3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    2.r308b1e_c 4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       514         514           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_ALL_Wbasic_z_IVH_UTIL.rtf)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: Wbasic_z (ALL) [ IVH_BASE ]
+Warning - collinearities detected
+Vars dropped:       2.r308b1e_c 4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         514                Number of obs =    84276
+                                                      F(  1,   513) =    54.88
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  15124.70502                Centered R2   =  -0.0033
+Total (uncentered) SS   =  15124.70502                Uncentered R2 =  -0.0033
+Residual SS             =  15174.51492                Root MSE      =    .4244
+
+------------------------------------------------------------------------------
+             |               Robust
+    Wbasic_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |   .1559277   .0210485     7.41   0.000     .1145758    .1972795
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):            133.203
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              1.4e+04
+                         (Kleibergen-Paap rk Wald F statistic):        135.167
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):        33.138
+                                                   Chi-sq(2) P-val =    0.0000
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       1.r308b1d_c 2.r308b1d_c 1.r308b1e_c 2.r309a_c 3.r309a_c
+                      1.r309b_c 2.r309b_c 3.r309b_c 1.r309d_c 2.r309d_c
+                      3.r309d_c 1.r309e_c 2.r310_c 2.r403a_c 3.r403a_c 4.r403a_c
+                      5.r403a_c 6.r403a_c 7.r403a_c 8.r403a_c 9.r403a_c
+                      13.r403a_c 14.r403a_c 15.r403a_c 16.r403a_c 17.r403a_c
+                      18.r403a_c 19.r403a_c 20.r403a_c 99.r403a_c 1.r403c1_c
+                      2.r403c1_c 3.r403c1_c 4.r403c1_c 1.r403c2_c 2.r403c2_c
+                      3.r403c2_c _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    2.r308b1e_c 4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       514         514           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_ALL_Wbasic_z_IVH_BASE.rtf)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: Wbasic_z (ALL) [ IVH_NONE ]
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         514                Number of obs =    84276
+                                                      F(  1,   513) =   111.07
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  17298.45242                Centered R2   =  -0.0050
+Total (uncentered) SS   =  17298.45242                Uncentered R2 =  -0.0050
+Residual SS             =   17384.9479                Root MSE      =    .4542
+
+------------------------------------------------------------------------------
+             |               Robust
+    Wbasic_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |   .2645171   .0250984    10.54   0.000     .2152089    .3138254
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):            128.518
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              1.6e+04
+                         (Kleibergen-Paap rk Wald F statistic):        143.156
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):        57.279
+                                                   Chi-sq(2) P-val =    0.0000
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       514         514           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_ALL_Wbasic_z_IVH_NONE.rtf)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: Wbasic_z (ALL) [ IVH_EDU_NB ]
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         514                Number of obs =    84276
+                                                      F(  1,   513) =    16.93
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  14143.50422                Centered R2   =  -0.0003
+Total (uncentered) SS   =  14143.50422                Uncentered R2 =  -0.0003
+Residual SS             =  14147.70607                Root MSE      =    .4098
+
+------------------------------------------------------------------------------
+             |               Robust
+    Wbasic_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |   .0807843   .0196339     4.11   0.000     .0422116     .119357
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):            134.106
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              1.4e+04
+                         (Kleibergen-Paap rk Wald F statistic):        131.692
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):        11.781
+                                                   Chi-sq(2) P-val =    0.0028
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       r701ak3_b r701ak4_b r701bk3_b r701bk4_b r701ck4_b
+                      r701dk2_b r701dk3_b r701dk4_b r701ek4_b r701fk4_b
+                      r701gk4_b r701hk4_b r701ik4_b r701jk4_b r701kk4_b
+                      r701ok3_b r701pk3_b r701qk3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       514         514           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_ALL_Wbasic_z_IVH_EDU_NB.rtf)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: Wbasic_z (ALL) [ IVH_HLTH_NB ]
+Warning - collinearities detected
+Vars dropped:       r711ek4_b
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         514                Number of obs =    84276
+                                                      F(  1,   513) =   110.49
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  17253.74801                Centered R2   =  -0.0052
+Total (uncentered) SS   =  17253.74801                Uncentered R2 =  -0.0052
+Residual SS             =   17343.7542                Root MSE      =    .4537
+
+------------------------------------------------------------------------------
+             |               Robust
+    Wbasic_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |   .2630327    .025023    10.51   0.000     .2138725    .3121929
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):            128.410
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              1.6e+04
+                         (Kleibergen-Paap rk Wald F statistic):        142.903
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):        57.285
+                                                   Chi-sq(2) P-val =    0.0000
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       r711ak3_b r711ak4_b r711bk3_b r711bk4_b r711ck3_b
+                      r711ck4_b r711dk3_b r711dk4_b r711ek3_b r711fk3_b
+                      r711fk4_b r711gk3_b r711gk4_b r711hk3_b r711hk4_b
+                      r711ik3_b r711ik4_b r711jk3_b r711jk4_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    r711ek4_b
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       514         514           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_ALL_Wbasic_z_IVH_HLTH_NB.rtf)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: Wbasic_z (ALL) [ IVH_UTIL_NB ]
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         514                Number of obs =    84276
+                                                      F(  1,   513) =   110.52
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  17254.06828                Centered R2   =  -0.0048
+Total (uncentered) SS   =  17254.06828                Uncentered R2 =  -0.0048
+Residual SS             =   17336.7308                Root MSE      =    .4536
+
+------------------------------------------------------------------------------
+             |               Robust
+    Wbasic_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |    .263172   .0250332    10.51   0.000     .2139918    .3123522
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):            128.513
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              1.6e+04
+                         (Kleibergen-Paap rk Wald F statistic):        143.122
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):        56.874
+                                                   Chi-sq(2) P-val =    0.0000
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       r509c1_b r509c2_b r509c3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       514         514           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_ALL_Wbasic_z_IVH_UTIL_NB.rtf)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: lnpov_z (ALL) [ IVH_EDU ]
+Warning - collinearities detected
+Vars dropped:       2.r308b1e_c 4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         514                Number of obs =    84276
+                                                      F(  1,   513) =    23.62
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  31131.89106                Centered R2   =  -0.0005
+Total (uncentered) SS   =  31131.89106                Uncentered R2 =  -0.0005
+Residual SS             =  31147.81795                Root MSE      =    .6081
+
+------------------------------------------------------------------------------
+             |               Robust
+     lnpov_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |  -.1306325   .0268816    -4.86   0.000    -.1834441   -.0778209
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):            135.089
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              1.3e+04
+                         (Kleibergen-Paap rk Wald F statistic):        126.335
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):        16.584
+                                                   Chi-sq(2) P-val =    0.0003
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       1.r308b1d_c 2.r308b1d_c 1.r308b1e_c 2.r309a_c 3.r309a_c
+                      1.r309b_c 2.r309b_c 3.r309b_c 1.r309d_c 2.r309d_c
+                      3.r309d_c 1.r309e_c 2.r310_c 2.r403a_c 3.r403a_c 4.r403a_c
+                      5.r403a_c 6.r403a_c 7.r403a_c 8.r403a_c 9.r403a_c
+                      13.r403a_c 14.r403a_c 15.r403a_c 16.r403a_c 17.r403a_c
+                      18.r403a_c 19.r403a_c 20.r403a_c 99.r403a_c 1.r403c1_c
+                      2.r403c1_c 3.r403c1_c 4.r403c1_c 1.r403c2_c 2.r403c2_c
+                      3.r403c2_c r701ak3_b r701ak4_b r701bk3_b r701bk4_b
+                      r701ck4_b r701dk2_b r701dk3_b r701dk4_b r701ek4_b
+                      r701fk4_b r701gk4_b r701hk4_b r701ik4_b r701jk4_b
+                      r701kk4_b r701ok3_b r701pk3_b r701qk3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    2.r308b1e_c 4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       514         514           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_ALL_lnpov_z_IVH_EDU.rtf)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: lnpov_z (ALL) [ IVH_HLTH ]
+Warning - collinearities detected
+Vars dropped:       2.r308b1e_c 4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+                    r711ek4_b
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         514                Number of obs =    84276
+                                                      F(  1,   513) =    71.87
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  35499.13703                Centered R2   =  -0.0046
+Total (uncentered) SS   =  35499.13703                Uncentered R2 =  -0.0046
+Residual SS             =  35663.02674                Root MSE      =    .6507
+
+------------------------------------------------------------------------------
+             |               Robust
+     lnpov_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |  -.2676262   .0315696    -8.48   0.000    -.3296479   -.2056045
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):            133.108
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              1.4e+04
+                         (Kleibergen-Paap rk Wald F statistic):        135.101
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):        36.463
+                                                   Chi-sq(2) P-val =    0.0000
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       1.r308b1d_c 2.r308b1d_c 1.r308b1e_c 2.r309a_c 3.r309a_c
+                      1.r309b_c 2.r309b_c 3.r309b_c 1.r309d_c 2.r309d_c
+                      3.r309d_c 1.r309e_c 2.r310_c 2.r403a_c 3.r403a_c 4.r403a_c
+                      5.r403a_c 6.r403a_c 7.r403a_c 8.r403a_c 9.r403a_c
+                      13.r403a_c 14.r403a_c 15.r403a_c 16.r403a_c 17.r403a_c
+                      18.r403a_c 19.r403a_c 20.r403a_c 99.r403a_c 1.r403c1_c
+                      2.r403c1_c 3.r403c1_c 4.r403c1_c 1.r403c2_c 2.r403c2_c
+                      3.r403c2_c r711ak3_b r711ak4_b r711bk3_b r711bk4_b
+                      r711ck3_b r711ck4_b r711dk3_b r711dk4_b r711ek3_b
+                      r711fk3_b r711fk4_b r711gk3_b r711gk4_b r711hk3_b
+                      r711hk4_b r711ik3_b r711ik4_b r711jk3_b r711jk4_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    2.r308b1e_c 4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+                      r711ek4_b
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       514         514           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_ALL_lnpov_z_IVH_HLTH.rtf)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: lnpov_z (ALL) [ IVH_UTIL ]
+Warning - collinearities detected
+Vars dropped:       2.r308b1e_c 4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         514                Number of obs =    84276
+                                                      F(  1,   513) =    71.57
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  35515.13526                Centered R2   =  -0.0043
+Total (uncentered) SS   =  35515.13526                Uncentered R2 =  -0.0043
+Residual SS             =  35667.23707                Root MSE      =    .6507
+
+------------------------------------------------------------------------------
+             |               Robust
+     lnpov_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |  -.2668838   .0315472    -8.46   0.000    -.3288614   -.2049061
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):            133.193
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              1.4e+04
+                         (Kleibergen-Paap rk Wald F statistic):        135.148
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):        35.904
+                                                   Chi-sq(2) P-val =    0.0000
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       1.r308b1d_c 2.r308b1d_c 1.r308b1e_c 2.r309a_c 3.r309a_c
+                      1.r309b_c 2.r309b_c 3.r309b_c 1.r309d_c 2.r309d_c
+                      3.r309d_c 1.r309e_c 2.r310_c 2.r403a_c 3.r403a_c 4.r403a_c
+                      5.r403a_c 6.r403a_c 7.r403a_c 8.r403a_c 9.r403a_c
+                      13.r403a_c 14.r403a_c 15.r403a_c 16.r403a_c 17.r403a_c
+                      18.r403a_c 19.r403a_c 20.r403a_c 99.r403a_c 1.r403c1_c
+                      2.r403c1_c 3.r403c1_c 4.r403c1_c 1.r403c2_c 2.r403c2_c
+                      3.r403c2_c r509c1_b r509c2_b r509c3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    2.r308b1e_c 4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       514         514           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_ALL_lnpov_z_IVH_UTIL.rtf)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: lnpov_z (ALL) [ IVH_BASE ]
+Warning - collinearities detected
+Vars dropped:       2.r308b1e_c 4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         514                Number of obs =    84276
+                                                      F(  1,   513) =    71.71
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  35603.85871                Centered R2   =  -0.0044
+Total (uncentered) SS   =  35603.85871                Uncentered R2 =  -0.0044
+Residual SS             =  35761.69665                Root MSE      =    .6516
+
+------------------------------------------------------------------------------
+             |               Robust
+     lnpov_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |  -.2680631   .0316559    -8.47   0.000    -.3302542   -.2058719
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):            133.203
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              1.4e+04
+                         (Kleibergen-Paap rk Wald F statistic):        135.167
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):        36.682
+                                                   Chi-sq(2) P-val =    0.0000
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       1.r308b1d_c 2.r308b1d_c 1.r308b1e_c 2.r309a_c 3.r309a_c
+                      1.r309b_c 2.r309b_c 3.r309b_c 1.r309d_c 2.r309d_c
+                      3.r309d_c 1.r309e_c 2.r310_c 2.r403a_c 3.r403a_c 4.r403a_c
+                      5.r403a_c 6.r403a_c 7.r403a_c 8.r403a_c 9.r403a_c
+                      13.r403a_c 14.r403a_c 15.r403a_c 16.r403a_c 17.r403a_c
+                      18.r403a_c 19.r403a_c 20.r403a_c 99.r403a_c 1.r403c1_c
+                      2.r403c1_c 3.r403c1_c 4.r403c1_c 1.r403c2_c 2.r403c2_c
+                      3.r403c2_c _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    2.r308b1e_c 4.r309d_c 2.r309e_c 5.r403c1_c 4.r403c2_c
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       514         514           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_ALL_lnpov_z_IVH_BASE.rtf)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: lnpov_z (ALL) [ IVH_NONE ]
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         514                Number of obs =    84276
+                                                      F(  1,   513) =   106.63
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  37317.65068                Centered R2   =  -0.0043
+Total (uncentered) SS   =  37317.65068                Uncentered R2 =  -0.0043
+Residual SS             =  37479.16814                Root MSE      =    .6669
+
+------------------------------------------------------------------------------
+             |               Robust
+     lnpov_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |  -.3584194   .0347105   -10.33   0.000    -.4266115   -.2902273
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):            128.518
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              1.6e+04
+                         (Kleibergen-Paap rk Wald F statistic):        143.156
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):        46.662
+                                                   Chi-sq(2) P-val =    0.0000
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       514         514           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_ALL_lnpov_z_IVH_NONE.rtf)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: lnpov_z (ALL) [ IVH_EDU_NB ]
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         514                Number of obs =    84276
+                                                      F(  1,   513) =    30.28
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  31319.78171                Centered R2   =  -0.0003
+Total (uncentered) SS   =  31319.78171                Uncentered R2 =  -0.0003
+Residual SS             =  31328.24344                Root MSE      =    .6098
+
+------------------------------------------------------------------------------
+             |               Robust
+     lnpov_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |  -.1501501   .0272848    -5.50   0.000    -.2037538   -.0965463
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):            134.106
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              1.4e+04
+                         (Kleibergen-Paap rk Wald F statistic):        131.692
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):        16.948
+                                                   Chi-sq(2) P-val =    0.0002
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       r701ak3_b r701ak4_b r701bk3_b r701bk4_b r701ck4_b
+                      r701dk2_b r701dk3_b r701dk4_b r701ek4_b r701fk4_b
+                      r701gk4_b r701hk4_b r701ik4_b r701jk4_b r701kk4_b
+                      r701ok3_b r701pk3_b r701qk3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       514         514           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_ALL_lnpov_z_IVH_EDU_NB.rtf)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: lnpov_z (ALL) [ IVH_HLTH_NB ]
+Warning - collinearities detected
+Vars dropped:       r711ek4_b
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         514                Number of obs =    84276
+                                                      F(  1,   513) =   106.77
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  37174.77856                Centered R2   =  -0.0046
+Total (uncentered) SS   =  37174.77856                Uncentered R2 =  -0.0046
+Residual SS             =  37345.20537                Root MSE      =    .6658
+
+------------------------------------------------------------------------------
+             |               Robust
+     lnpov_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |   -.356389   .0344898   -10.33   0.000    -.4241476   -.2886303
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):            128.410
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              1.6e+04
+                         (Kleibergen-Paap rk Wald F statistic):        142.903
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):        46.330
+                                                   Chi-sq(2) P-val =    0.0000
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       r711ak3_b r711ak4_b r711bk3_b r711bk4_b r711ck3_b
+                      r711ck4_b r711dk3_b r711dk4_b r711ek3_b r711fk3_b
+                      r711fk4_b r711gk3_b r711gk4_b r711hk3_b r711hk4_b
+                      r711ik3_b r711ik4_b r711jk3_b r711jk4_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+Dropped collinear:    r711ek4_b
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       514         514           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_ALL_lnpov_z_IVH_HLTH_NB.rtf)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+-> M1 Homog IV v1: lnpov_z (ALL) [ IVH_UTIL_NB ]
+(MWFE estimator converged in 1 iterations)
+
+IV (2SLS) estimation
+--------------------
+
+Estimates efficient for homoskedasticity only
+Statistics robust to heteroskedasticity and clustering on kab
+
+Number of clusters (kab) =         514                Number of obs =    84276
+                                                      F(  1,   513) =   106.33
+                                                      Prob > F      =   0.0000
+Total (centered) SS     =  37187.51223                Centered R2   =  -0.0041
+Total (uncentered) SS   =  37187.51223                Uncentered R2 =  -0.0041
+Residual SS             =  37339.99041                Root MSE      =    .6657
+
+------------------------------------------------------------------------------
+             |               Robust
+     lnpov_z | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+     A_v_log |  -.3560439   .0345291   -10.31   0.000    -.4238799    -.288208
+------------------------------------------------------------------------------
+Underidentification test (Kleibergen-Paap rk LM statistic):            128.513
+                                                   Chi-sq(3) P-val =    0.0000
+------------------------------------------------------------------------------
+Weak identification test (Cragg-Donald Wald F statistic):              1.6e+04
+                         (Kleibergen-Paap rk Wald F statistic):        143.122
+Stock-Yogo weak ID test critical values:  5% maximal IV relative bias    13.91
+                                         10% maximal IV relative bias     9.08
+                                         20% maximal IV relative bias     6.46
+                                         30% maximal IV relative bias     5.39
+                                         10% maximal IV size             22.30
+                                         15% maximal IV size             12.83
+                                         20% maximal IV size              9.54
+                                         25% maximal IV size              7.80
+Source: Stock-Yogo (2005).  Reproduced by permission.
+NB: Critical values are for Cragg-Donald F statistic and i.i.d. errors.
+------------------------------------------------------------------------------
+Hansen J statistic (overidentification test of all instruments):        45.800
+                                                   Chi-sq(2) P-val =    0.0000
+------------------------------------------------------------------------------
+Instrumented:         A_v_log
+Excluded instruments: Z_pel Z_tbbm Z_tpi
+Partialled-out:       r509c1_b r509c2_b r509c3_b _cons
+                      nb: total SS, model F and R2s are after partialling-out;
+                          any small-sample adjustments include partialled-out
+                          variables in regressor count K
+------------------------------------------------------------------------------
+
+Absorbed degrees of freedom:
+-----------------------------------------------------+
+ Absorbed FE | Categories  - Redundant  = Num. Coefs |
+-------------+---------------------------------------|
+         kab |       514         514           0    *|
+-----------------------------------------------------+
+* = FE nested within cluster; treated as redundant for DoF computation
+(output written to /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/tables/V1_M1_iv_homog_ALL_lnpov_z_IVH_UTIL_NB.rtf)
+(0 real changes made)
+(variable iddesa was str10, now str32 to accommodate using data's values)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_70602.000001 saved as .dta format
+. }
+
+. 
+. 
+. /****************************************************************************************
+> I. EXPORT MASTER VILLAGE TABLE
+> ****************************************************************************************/
+. use "$VMASTER1", clear
+
+. 
+. cap confirm variable $ID
+
+. if _rc gen str32 $ID = ""
+
+. 
+. foreach v in sample outcome spec {
+  2.     cap confirm variable `v'
+  3.     if _rc gen str18 `v' = ""
+  4. }
+
+. 
+. foreach v in A_used W_hat uhat beta_vill A_contrib {
+  2.     cap confirm variable `v'
+  3.     if _rc gen double `v' = .
+  4. }
+
+. 
+. drop if missing($ID)
+(0 observations deleted)
+
+. order $ID sample outcome spec A_used W_hat uhat beta_vill A_contrib
+
+. compress
+  variable iddesa was str32 now str10
+  variable sample was str10 now str5
+  variable outcome was str18 now str8
+  variable spec was str12 now str11
+  (59,124,352 bytes saved)
+
+. 
+. save "$outdir/village_values/village_values_long_v1.dta", replace
+file /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/village_values/village_values_long_v1.dta saved
+
+. export delimited using "$outdir/village_values/village_values_long_v1.csv", replace
+file /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/village_values/village_values_long_v1.csv saved
+
+. 
+. use "$VMASTER2", clear
+
+. 
+. cap confirm variable $ID
+
+. if _rc gen str32 $ID = ""
+
+. 
+. foreach v in sample outcome spec {
+  2.     cap confirm variable `v'
+  3.     if _rc gen str18 `v' = ""
+  4. }
+
+. 
+. foreach v in A_used W_hat uhat beta_vill A_contrib {
+  2.     cap confirm variable `v'
+  3.     if _rc gen double `v' = .
+  4. }
+
+. 
+. drop if missing($ID)
+(0 observations deleted)
+
+. order $ID sample outcome spec A_used W_hat uhat beta_vill A_contrib
+
+. compress
+
+. 
+. save "$outdir/village_values/village_values_long_v2.dta", replace
+(dataset contains 0 observations)
+file /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/village_values/village_values_long_v2.dta saved
+
+. export delimited using "$outdir/village_values/village_values_long_v2.csv", replace
+file /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/village_values/village_values_long_v2.csv saved
+
+. 
+. 
+. log close
+      name:  <unnamed>
+       log:  /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/tsls/logs/V1_run_iv_suite.log
+  log type:  text
+ closed on:   3 Feb 2026, 14:17:25
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------

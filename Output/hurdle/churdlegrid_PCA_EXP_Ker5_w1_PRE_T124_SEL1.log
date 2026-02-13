@@ -1,0 +1,12 @@
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/hurdle/churdlegrid_PCA_EXP_Ker5_w1_PRE_T124_SEL1.log
+  log type:  text
+ opened on:  22 Jan 2026, 12:06:12
+RUN: churdle exponential Ker5_w1 lnpov Edu_z Wbasic_z Util_z, select(i.r308b1d i.r308b1e i.r309a i.r309b i.r309d i.r309e i.r310 i.r403a i.r403c1 i.r403c2) ll(0)
+FAILED (rc=1)
+      name:  <unnamed>
+       log:  /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/hurdle/churdlegrid_PCA_EXP_Ker5_w1_PRE_T124_SEL1.log
+  log type:  text
+ closed on:  22 Jan 2026, 12:06:12
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------

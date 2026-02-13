@@ -1,0 +1,14 @@
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/hurdle/welfaregrid_CH_Wbasic_z_seldep_Ker5_w1.log
+  log type:  text
+ opened on:  22 Jan 2026, 12:06:15
+RUN: churdle lognormal Wbasic_z Ker5_w1 i.r308b1d i.r308b1e i.r309a i.r309b i.r309d i.r309e i.r310 i.r403a i.r403c1 i.r403c2 i.y_combo3 i.r101, select(Ker5_w1 = i.r308b1d i.r308b1e i.r309a i.r309b i.r309d i.r309e i.r310 i.r403a i.r403c1 i.r403c2 i.y_combo
+> 3 i.r101) ll(0) vce(cluster nama_kab)
+lognormal not a valid estimator
+FAILED (rc=198)
+      name:  <unnamed>
+       log:  /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/hurdle/welfaregrid_CH_Wbasic_z_seldep_Ker5_w1.log
+  log type:  text
+ closed on:  22 Jan 2026, 12:06:15
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------

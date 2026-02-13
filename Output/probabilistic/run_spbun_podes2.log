@@ -1,0 +1,2728 @@
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/probabilistic/run_spbun_podes_susenas.log
+  log type:  text
+ opened on:   7 Jan 2026, 19:47:08
+
+. 
+. /****************************************************************************************
+> B. PACKAGES
+> ****************************************************************************************/
+. cap which reghdfe
+
+. if _rc ssc install reghdfe, replace
+
+. cap which ftools
+
+. if _rc ssc install ftools, replace
+
+. cap which geodist
+
+. if _rc ssc install geodist, replace
+
+. cap which gtools
+
+. if _rc ssc install gtools, replace
+
+. 
+. /****************************************************************************************
+> C. HELPERS
+> ****************************************************************************************/
+. capture program drop _std_iddesa10
+
+. program define _std_iddesa10
+  1.     syntax varname
+  2.     capture confirm numeric variable `varlist'
+  3.     if !_rc tostring `varlist', replace format("%010.0f")
+  4.     replace `varlist' = trim(`varlist')
+  5.     replace `varlist' = subinstr(`varlist'," ","",.)
+  6.     replace `varlist' = subinstr(`varlist',".","",.)
+  7.     replace `varlist' = subinstr(`varlist',",","",.)
+  8.     replace `varlist' = substr("0000000000"+`varlist', strlen("0000000000"+`varlist')-9, 10)
+  9.     assert strlen(`varlist')==10
+ 10. end
+
+. 
+. /****************************************************************************************
+> D. BUILD "$outdir/podes_vill.dta"  (MAIN + PESISIR + coords fallback)
+> ****************************************************************************************/
+. tempfile MAIN PES kelcoords
+
+. 
+. * D1) MAIN
+. use "$podes_main", clear
+
+. 
+. cap confirm variable IDDESA
+
+. if _rc {
+.     cap confirm variable iddesa
+.     if !_rc rename iddesa IDDESA
+.     cap confirm variable IdDesa
+.     if !_rc rename IdDesa IDDESA
+.     cap confirm variable Iddesa
+.     if !_rc rename Iddesa IDDESA
+. }
+
+. cap confirm variable IDDESA
+
+. if _rc {
+.     di as err "MAIN: cannot find village id variable (IDDESA/iddesa)."
+.     describe, short
+.     exit 111
+. }
+
+. 
+. cap confirm numeric variable IDDESA
+
+. if !_rc tostring IDDESA, replace format("%010.0f")
+
+. 
+. replace IDDESA = trim(IDDESA)
+(0 real changes made)
+
+. replace IDDESA = subinstr(IDDESA," ","",.)
+(0 real changes made)
+
+. replace IDDESA = subinstr(IDDESA,".","",.)
+(0 real changes made)
+
+. replace IDDESA = subinstr(IDDESA,",","",.)
+(0 real changes made)
+
+. replace IDDESA = substr("0000000000"+IDDESA, strlen("0000000000"+IDDESA)-9, 10)
+(0 real changes made)
+
+. assert strlen(IDDESA)==10
+
+. 
+. rename *, lower
+
+. cap confirm variable iddesa
+
+. if _rc rename iddesa iddesa
+
+. rename iddesa iddesa
+  (all newnames==oldnames)
+
+. _std_iddesa10 iddesa
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+
+. 
+. duplicates drop iddesa, force
+
+Duplicates in terms of iddesa
+
+(0 observations are duplicates)
+
+. save `MAIN', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.000001 not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.000001 saved as .dta format
+
+. 
+. * D2) PESISIR (prefix p_)
+. use "$podes_pesisir", clear
+
+. rename *, lower
+
+. 
+. cap confirm variable iddesa
+
+. if _rc {
+.     di as err "PESISIR: iddesa not found."
+.     describe, short
+.     exit 111
+. }
+
+. _std_iddesa10 iddesa
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+
+. 
+. keep iddesa r307b_lat r307b_long ///
+>      r308* r309* r310 ///
+>      r402* r403* ///
+>      r501* r502* r503* ///
+>      r507* r508* r509* ///
+>      r510* r511* r514* r515*
+
+. 
+. duplicates drop iddesa, force
+
+Duplicates in terms of iddesa
+
+(0 observations are duplicates)
+
+. 
+. ds iddesa, not
+r307b_lat   r308b1d     r309c       r402b2      r402e2a     r403c2      r502b       r503a5      r503a11     r509a       r510ak3     r510b1k5    r510b3k3    r510b4k5    r510b6k3    r510b8k2    r510b9k5    r511b2      r511c3      r514b_k4    r515c
+r307b_long  r308b1e     r309d       r402c       r402e2b     r501a1      r502c       r503a6      r503b       r509b       r510ak4     r510b2k2    r510b3k4    r510b5k2    r510b6k4    r510b8k3    r510b10k2   r511b3      r514a_k2    r514c_k2
+r308a       r308b2      r309e       r402d1      r403a       r501a2      r503a1      r503a7      r503c       r509c1      r510ak5     r510b2k3    r510b3k5    r510b5k3    r510b6k5    r510b8k4    r510b10k4   r511c1      r514a_k3    r514c_k3
+r308b1a     r308b3      r310        r402d2a     r403b1      r501b       r503a2      r503a8      r507        r509c2      r510b1k2    r510b2k4    r510b4k2    r510b5k4    r510b7k2    r510b8k5    r510b10k5   r511c2a     r514a_k4    r514c_k4
+r308b1b     r309a       r402a       r402d2b     r403b2      r501c       r503a3      r503a9      r508a       r509c3      r510b1k3    r510b2k5    r510b4k3    r510b5k5    r510b7k3    r510b9k2    r511a       r511c2b     r514b_k2    r515a
+r308b1c     r309b       r402b1      r402e1      r403c1      r502a       r503a4      r503a10     r508b       r510ak2     r510b1k4    r510b3k2    r510b4k4    r510b6k2    r510b7k4    r510b9k4    r511b1      r511c2c     r514b_k3    r515b
+
+. local pesvars `r(varlist)'
+
+. foreach v of local pesvars {
+  2.     rename `v' p_`v'
+  3. }
+
+. save `PES', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.000002 not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.000002 saved as .dta format
+
+. 
+. * D3) MERGE MAIN + PESISIR; fill missing from p_*
+. use `MAIN', clear
+
+. merge 1:1 iddesa using `PES', nogen keep(master match)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                            84,276  
+    -----------------------------------------
+
+. 
+. capture ds p_*
+
+. if !_rc {
+.     local plist `r(varlist)'
+.     foreach pv of local plist {
+  2.         local tv = substr("`pv'",3,.)
+  3.         capture confirm variable `tv'
+  4.         if _rc {
+  5.             rename `pv' `tv'
+  6.         }
+  7.         else {
+  8.             capture confirm numeric variable `tv'
+  9.             if !_rc {
+ 10.                 replace `tv' = `pv' if missing(`tv') & !missing(`pv')
+ 11.             }
+ 12.             else {
+ 13.                 capture confirm string variable `tv'
+ 14.                 if !_rc {
+ 15.                     replace `tv' = `pv' if (`tv'=="") & (`pv'!="")
+ 16.                 }
+ 17.             }
+ 18.             drop `pv'
+ 19.         }
+ 20.     }
+. }
+
+. 
+. * admin codes from iddesa
+. capture drop r101 r102 r103 r104
+
+. gen int r101 = real(substr(iddesa,1,2))
+
+. gen int r102 = real(substr(iddesa,3,2))
+
+. gen int r103 = real(substr(iddesa,5,3))
+
+. gen int r104 = real(substr(iddesa,8,3))
+
+. 
+. capture drop kab
+
+. egen long kab = group(r101 r102), label
+
+. 
+. * coords prefer r307b_lat/long
+. cap confirm variable lat_v
+
+. if _rc gen double lat_v = .
+(84,276 missing values generated)
+
+. cap confirm variable lon_v
+
+. if _rc gen double lon_v = .
+(84,276 missing values generated)
+
+. 
+. cap confirm variable r307b_lat
+
+. if !_rc {
+.     cap confirm numeric variable r307b_lat
+.     if _rc destring r307b_lat, replace ignore(",")
+.     replace lat_v = r307b_lat if missing(lat_v) & !missing(r307b_lat)
+(84,276 real changes made)
+. }
+
+. cap confirm variable r307b_long
+
+. if !_rc {
+.     cap confirm numeric variable r307b_long
+.     if _rc destring r307b_long, replace ignore(",")
+.     replace lon_v = r307b_long if missing(lon_v) & !missing(r307b_long)
+(84,276 real changes made)
+. }
+
+. capture drop r307b_lat r307b_long
+
+. 
+. * fallback coords from kel_latlon if still missing
+. count if missing(lat_v) | missing(lon_v)
+  0
+
+. if r(N) > 0 {
+.     di as txt "Coords missing for " r(N) " villages -> fallback merge from kel_latlon..."
+.     preserve
+.         import delimited "$kel_latlon", clear varnames(1) case(preserve) stringcols(_all)
+. 
+.         local idv ""
+.         local latc ""
+.         local lonc ""
+.         foreach v of varlist _all {
+  2.             if "`idv'"==""  & strpos(lower("`v'"),"iddesa") local idv `v'
+  3.             if "`latc'"=="" & strpos(lower("`v'"),"lat")    local latc `v'
+  4.             if "`lonc'"=="" & (strpos(lower("`v'"),"lon") | strpos(lower("`v'"),"long")) local lonc `v'
+  5.         }
+. 
+.         if "`idv'"!="" & "`latc'"!="" & "`lonc'"!="" {
+.             rename `idv' iddesa
+.             rename `latc' lat_v2
+.             rename `lonc' lon_v2
+.             _std_iddesa10 iddesa
+.             destring lat_v2 lon_v2, replace ignore(",")
+.             keep iddesa lat_v2 lon_v2
+.             duplicates drop iddesa, force
+.             save `kelcoords', replace
+.         }
+.     restore
+. 
+.     capture confirm file "`kelcoords'"
+.     if !_rc {
+.         merge 1:1 iddesa using `kelcoords', nogen keep(master match)
+.         replace lat_v = lat_v2 if missing(lat_v) & !missing(lat_v2)
+.         replace lon_v = lon_v2 if missing(lon_v) & !missing(lon_v2)
+.         drop lat_v2 lon_v2
+.     }
+. }
+
+. 
+. save "$outdir/podes_vill.dta", replace
+file /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/probabilistic/podes_vill.dta saved
+
+. di as result "Saved: $outdir/podes_vill.dta"
+Saved: /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/probabilistic/podes_vill.dta
+
+. 
+. /****************************************************************************************
+> E. BUILD SPBUN SITE DATASET FROM CSV (coords + volumes + quota + rr)
+> ****************************************************************************************/
+. tempfile spbun_site
+
+. import delimited "$spbun_csv", clear varnames(1) case(preserve) stringcols(_all)
+(encoding automatically selected: UTF-8)
+(113 vars, 377 obs)
+
+. 
+. capture confirm variable TitikKoordinat
+
+. if _rc {
+.     di as err "Cannot find TitikKoordinat in SPBUN CSV."
+.     describe
+.     exit 198
+. }
+
+. rename TitikKoordinat titik_koordinat
+
+. 
+. replace titik_koordinat = subinstr(titik_koordinat, char(34), "", .)
+(0 real changes made)
+
+. replace titik_koordinat = subinstr(titik_koordinat, char(39), "", .)
+(83 real changes made)
+
+. replace titik_koordinat = subinstr(titik_koordinat, " ", "", .)
+(1 real change made)
+
+. replace titik_koordinat = "" if inlist(upper(trim(titik_koordinat)), "#N/A", "N/A", "NA", ".")
+(8 real changes made)
+
+. 
+. gen strL coord = titik_koordinat
+(8 missing values generated)
+
+. split coord, parse(",") gen(_c)
+variables created as string: 
+_c1  _c2
+
+. 
+. foreach v of varlist _c* {
+  2.     replace `v' = trim(`v')
+  3.     replace `v' = subinstr(`v', char(160),"", .)
+  4.     replace `v' = subinstr(`v', "–", "-", .)
+  5.     replace `v' = subinstr(`v', "−", "-", .)
+  6.     replace `v' = ustrregexra(`v', "[^0-9.-]", "")
+  7. }
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+
+. 
+. gen double lat_s = real(_c1)
+(8 missing values generated)
+
+. gen double lon_s = real(_c2)
+(10 missing values generated)
+
+. drop _c* coord
+
+. 
+. * swap if obviously reversed
+. gen byte _swap = (abs(lat_s)>90 & abs(lon_s)<=90)
+
+. gen double _tmp = lat_s
+(8 missing values generated)
+
+. replace lat_s = lon_s if _swap
+(0 real changes made)
+
+. replace lon_s = _tmp  if _swap
+(0 real changes made)
+
+. drop _swap _tmp
+
+. 
+. drop if missing(lat_s) | missing(lon_s)
+(10 observations deleted)
+
+. 
+. * quota vars (auto-detect)
+. local qjbt ""
+
+. local qjbkp ""
+
+. foreach v of varlist _all {
+  2.     if "`qjbt'"==""  & strpos(lower("`v'"),"kuota") & strpos(lower("`v'"),"jbt")  local qjbt  `v'
+  3.     if "`qjbkp'"=="" & strpos(lower("`v'"),"kuota") & strpos(lower("`v'"),"jbkp") local qjbkp `v'
+  4. }
+
+. if "`qjbt'"!=""  rename `qjbt'  kuota_jbt
+
+. if "`qjbkp'"!="" rename `qjbkp' kuota_jbkp
+
+. capture destring kuota_jbt kuota_jbkp, replace ignore(",")
+
+. 
+. * volume (robust): destring likely volume cols, then rowtotal
+. capture ds Total* *total* *realisasi* *volume*, has(type string)
+
+. if !_rc {
+.     foreach v of varlist `r(varlist)' {
+  2.         capture destring `v', replace ignore(",")
+  3.     }
+. }
+
+. 
+. local volvars ""
+
+. capture ds Total* *total* *realisasi* *volume*, has(type numeric)
+
+. if !_rc local volvars "`r(varlist)'"
+
+. 
+. capture drop vol_s
+
+. if "`volvars'"!="" {
+.     egen double vol_s = rowtotal(`volvars'), missing
+. }
+
+. else {
+.     gen double vol_s = .
+(367 missing values generated)
+. }
+
+. 
+. gen double quota_s = .
+(367 missing values generated)
+
+. capture confirm variable kuota_jbt
+
+. if !_rc replace quota_s = kuota_jbt
+
+. capture confirm variable kuota_jbkp
+
+. if !_rc replace quota_s = cond(missing(quota_s), kuota_jbkp, quota_s + kuota_jbkp)
+
+. 
+. gen double rr_s = .
+(367 missing values generated)
+
+. replace rr_s = vol_s / quota_s if quota_s>0 & !missing(vol_s)
+(0 real changes made)
+
+. 
+. gen double w1   = 1
+
+. gen double wvol = vol_s
+(367 missing values generated)
+
+. gen double wrr  = rr_s
+(367 missing values generated)
+
+. 
+. gen long site_id = _n
+
+. keep site_id lat_s lon_s vol_s quota_s rr_s w1 wvol wrr
+
+. save `spbun_site', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.000004 not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.000004 saved as .dta format
+
+. 
+. /****************************************************************************************
+> F. ASSIGN EACH SPBUN SITE TO NEAREST VILLAGE (get r101/r102, kab)
+> ****************************************************************************************/
+. tempfile spbun_site_coded villcoords site_bins site2kab
+
+. local binsz = 0.10
+
+. 
+. use `spbun_site', clear
+
+. 
+. preserve
+
+.     use "$outdir/podes_vill.dta", clear
+
+.     keep iddesa kab r101 r102 lat_v lon_v
+
+.     drop if missing(lat_v) | missing(lon_v)
+(0 observations deleted)
+
+.     save `villcoords', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.000006 not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.000006 saved as .dta format
+
+. restore
+
+. 
+. drop if missing(lat_s) | missing(lon_s)
+(0 observations deleted)
+
+. 
+. gen int latbin = floor(lat_s/`binsz')
+
+. gen int lonbin = floor(lon_s/`binsz')
+
+. 
+. expand 9
+(2,936 observations created)
+
+. bys site_id: gen byte _g = _n - 1
+
+. gen int dlat = floor(_g/3) - 1
+
+. gen int dlon = mod(_g,3) - 1
+
+. gen int latbin2 = latbin + dlat
+(9 missing values generated)
+
+. gen int lonbin2 = lonbin + dlon
+(9 missing values generated)
+
+. drop _g dlat dlon
+
+. 
+. save `site_bins', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.000007 not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.000007 saved as .dta format
+
+. 
+. use `villcoords', clear
+
+. gen int latbin2 = floor(lat_v/`binsz')
+
+. gen int lonbin2 = floor(lon_v/`binsz')
+
+. 
+. joinby latbin2 lonbin2 using `site_bins'
+
+. geodist lat_v lon_v lat_s lon_s, gen(dkm)
+
+. bys site_id (dkm): keep if _n==1
+(30,588 observations deleted)
+
+. 
+. keep site_id r101 r102 kab
+
+. save `site2kab', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.000008 not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.000008 saved as .dta format
+
+. 
+. use `spbun_site', clear
+
+. merge 1:1 site_id using `site2kab', nogen keep(master match)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             2
+        from master                         2  
+        from using                          0  
+
+    Matched                               365  
+    -----------------------------------------
+
+. save `spbun_site_coded', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.000005 not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.000005 saved as .dta format
+
+. 
+. /****************************************************************************************
+> G. VILLAGE-LEVEL EXPOSURE MEASURES
+> ****************************************************************************************/
+. tempfile vill_core vill_bins site_bins2 vill_exposure vill_exposure_only
+
+. 
+. use "$outdir/podes_vill.dta", clear
+
+. keep iddesa kab r101 r102 lat_v lon_v
+
+. save `vill_core', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.00000a not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.00000a saved as .dta format
+
+. 
+. use `vill_core', clear
+
+. drop if missing(lat_v) | missing(lon_v)
+(0 observations deleted)
+
+. gen int latbin = floor(lat_v/`binsz')
+
+. gen int lonbin = floor(lon_v/`binsz')
+
+. save `vill_bins', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.00000b not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.00000b saved as .dta format
+
+. 
+. use `spbun_site_coded', clear
+
+. keep site_id lat_s lon_s w1 wvol wrr vol_s rr_s r101 r102 kab
+
+. drop if missing(lat_s) | missing(lon_s)
+(0 observations deleted)
+
+. gen int latbin = floor(lat_s/`binsz')
+
+. gen int lonbin = floor(lon_s/`binsz')
+
+. 
+. expand 9
+(2,936 observations created)
+
+. bys site_id: gen byte _g = _n - 1
+
+. gen int dlat = floor(_g/3) - 1
+
+. gen int dlon = mod(_g,3) - 1
+
+. gen int latbin2 = latbin + dlat
+(9 missing values generated)
+
+. gen int lonbin2 = lonbin + dlon
+(9 missing values generated)
+
+. drop _g dlat dlon latbin lonbin
+
+. rename latbin2 latbin
+
+. rename lonbin2 lonbin
+
+. save `site_bins2', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.00000c not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.00000c saved as .dta format
+
+. 
+. use `vill_bins', clear
+
+. joinby latbin lonbin using `site_bins2'
+
+. geodist lat_v lon_v lat_s lon_s, gen(dkm)
+
+. 
+. bys iddesa: egen double D_v = min(dkm)
+
+. gen double A_v_log = -ln(1 + D_v)
+
+. gen double A_v_inv = 1/(1 + D_v)
+
+. 
+. foreach R in 5 10 15 {
+  2.     gen byte in`R' = (dkm<=`R')
+  3.     bys iddesa: egen double C`R'_w1   = total(cond(in`R', w1,   0))
+  4.     bys iddesa: egen double C`R'_wvol = total(cond(in`R', wvol, 0))
+  5.     bys iddesa: egen double C`R'_wrr  = total(cond(in`R', wrr,  0))
+  6. }
+
+. foreach h in 5 10 20 {
+  2.     bys iddesa: egen double Ker`h'_w1   = total(w1  *exp(-dkm/`h'))
+  3.     bys iddesa: egen double Ker`h'_wvol = total(wvol*exp(-dkm/`h'))
+  4.     bys iddesa: egen double Ker`h'_wrr  = total(wrr *exp(-dkm/`h'))
+  5. }
+
+. 
+. bys iddesa: keep if _n==1
+(13,830 observations deleted)
+
+. keep iddesa D_v A_v_log A_v_inv C*_w1 C*_wvol C*_wrr Ker*_w1 Ker*_wvol Ker*_wrr
+
+. save `vill_exposure', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.00000d not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.00000d saved as .dta format
+
+. 
+. use `vill_exposure', clear
+
+. keep iddesa D_v A_v_log A_v_inv C*_w1 C*_wvol C*_wrr Ker*_w1 Ker*_wvol Ker*_wrr
+
+. save `vill_exposure_only', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.00000e not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.00000e saved as .dta format
+
+. 
+. use "$outdir/podes_vill.dta", clear
+
+. merge 1:1 iddesa using `vill_exposure_only', nogen keep(master match)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                        67,153
+        from master                    67,153  
+        from using                          0  
+
+    Matched                            17,123  
+    -----------------------------------------
+
+. 
+. gen byte coord_ok  = !missing(lat_v) & !missing(lon_v)
+
+. gen byte exp_match = !missing(D_v)
+
+. 
+. foreach v of varlist C*_w1 C*_wvol C*_wrr Ker*_w1 Ker*_wvol Ker*_wrr {
+  2.     replace `v' = 0 if missing(`v') & coord_ok==1
+  3. }
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+
+. 
+. save `vill_exposure', replace
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_47550.00000d saved as .dta format
+
+. 
+. /****************************************************************************************
+> H. PODES ONLY: PCA-ready categorical/ordinal outcome construction
+> ****************************************************************************************/
+. 
+. * --------------------------------------------------------------------------------------
+. * 0) SPBUN-target label (full sample; no filtering)
+. * --------------------------------------------------------------------------------------
+. cap drop spbun_target
+
+. gen byte spbun_target = 0
+
+. foreach v in r308b1a r308b1b r308b1c {
+  2.     cap confirm numeric variable `v'
+  3.     if !_rc replace spbun_target = 1 if `v'==1
+  4. }
+(12,117 real changes made)
+(112 real changes made)
+(8 real changes made)
+
+. label define spbun_target_lbl 0 "Non-target" 1 "Target (tangkap/budidaya/garam)", replace
+
+. label values spbun_target spbun_target_lbl
+
+. 
+. * --------------------------------------------------------------------------------------
+. * 1) Helpers
+. * --------------------------------------------------------------------------------------
+. 
+. * Convert 1/2 yes-no variables to 1/0 
+. capture program drop _yn12_to01
+
+. program define _yn12_to01
+  1.     syntax varlist
+  2.     foreach v of varlist `varlist' {
+  3.         cap confirm numeric variable `v'
+  4.         if _rc continue
+  5.         quietly summarize `v' if !missing(`v'), meanonly
+  6.         if (r(min)>=1 & r(max)<=2) {
+  7.             replace `v' = (`v'==1) if inlist(`v',1,2)
+  8.         }
+  9.     }
+ 10. end
+
+. 
+. * Bin a numeric variable into 0 + quantiles among non-zero (ordinal 0..4)
+. capture program drop _bin0q4
+
+. program define _bin0q4
+  1.     syntax varname(numeric), gen(name)
+  2.     tempvar q
+  3.     cap drop `gen'
+  4.     gen byte `gen' = .
+  5.     replace `gen' = 0 if `varlist'==0 & !missing(`varlist')
+  6. 
+.     quietly count if `varlist'>0 & !missing(`varlist')
+  7.     if (r(N)>=30) {
+  8.         xtile `q' = `varlist' if `varlist'>0 & !missing(`varlist'), nq(4)
+  9.         replace `gen' = `q' if `varlist'>0 & !missing(`varlist')
+ 10.         label define `gen'_lbl 0 "0" 1 "Q1" 2 "Q2" 3 "Q3" 4 "Q4", replace
+ 11.     }
+ 12.     else if (r(N)>0) {
+ 13.         xtile `q' = `varlist' if `varlist'>0 & !missing(`varlist'), nq(2)
+ 14.         replace `gen' = cond(`q'==1,1,4) if `varlist'>0 & !missing(`varlist')
+ 15.         label define `gen'_lbl 0 "0" 1 "Low" 4 "High", replace
+ 16.     }
+ 17.     else {
+ 18.         label define `gen'_lbl 0 "0", replace
+ 19.     }
+ 20. 
+.     label values `gen' `gen'_lbl
+ 21. end
+
+. 
+. 
+. 
+. * --------------------------------------------------------------------------------------
+. * 2) Wbasic: basic facilities (categorical/ordinal inputs)
+. * --------------------------------------------------------------------------------------
+. 
+. cap drop hh_light_total sh_elec elec_cat
+
+. egen double hh_light_total = rowtotal(r501a1 r501a2 r501b r501c)
+
+. replace hh_light_total = . if missing(r501a1) & missing(r501a2) & missing(r501b) & missing(r501c)
+(0 real changes made)
+
+. 
+. gen double sh_elec = (r501a1 + r501a2) / hh_light_total if hh_light_total>0
+
+. 
+. gen byte elec_cat = .
+(84,276 missing values generated)
+
+. replace elec_cat = 3 if sh_elec>=0.90 & sh_elec<=1
+(77,807 real changes made)
+
+. replace elec_cat = 2 if sh_elec>=0.50 & sh_elec<0.90
+(3,285 real changes made)
+
+. replace elec_cat = 1 if sh_elec>0    & sh_elec<0.50
+(2,043 real changes made)
+
+. replace elec_cat = 0 if sh_elec==0
+(1,141 real changes made)
+
+. 
+. label define elec_cat_lbl 0 "0%" 1 "1-49%" 2 "50-89%" 3 ">=90%", replace
+
+. label values elec_cat elec_cat_lbl
+
+. 
+. cap drop cook_market
+
+. cap confirm numeric variable r503b
+
+. if !_rc gen byte cook_market = inlist(r503b,1,2,3,4,5,7) if !missing(r503b)
+
+. 
+. _yn12_to01 r503a1-r503a11
+(56,966 real changes made)
+(51,607 real changes made)
+(44,293 real changes made)
+(14,972 real changes made)
+(83,062 real changes made)
+(83,675 real changes made)
+(65,213 real changes made)
+(84,206 real changes made)
+(81,669 real changes made)
+(12,390 real changes made)
+(84,182 real changes made)
+
+. _yn12_to01 r502a r502b r502c
+(53,800 real changes made)
+
+. 
+. local Wbasic_in "elec_cat r502a r502b r502c cook_market r503a1-r503a11"
+
+. 
+. 
+. * --------------------------------------------------------------------------------------
+. * 3) Util: utilities / infra
+. * --------------------------------------------------------------------------------------
+. 
+. _yn12_to01 r507* r508a r508b r509a r509b r510*
+(73,118 real changes made)
+(17,226 real changes made)
+(47,591 real changes made)
+(78,322 real changes made)
+(73,419 real changes made)
+
+. 
+. foreach v in r509c1 r509c2 r509c3 {
+  2.     cap confirm numeric variable `v'
+  3.     if !_rc _bin0q4 `v', gen(`v'_b)
+  4. }
+(84,276 missing values generated)
+(79,006 real changes made)
+(5,270 real changes made)
+(84,276 missing values generated)
+(79,006 real changes made)
+(5,270 real changes made)
+(84,276 missing values generated)
+(79,006 real changes made)
+(5,270 real changes made)
+
+. 
+. ds r511c* r514* r515*, has(type numeric)
+r511c1    r511c2a   r511c2b   r511c2c   r511c3    r514a_k2  r514a_k3  r514a_k4  r514b_k2  r514b_k3  r514b_k4  r514c_k2  r514c_k3  r514c_k4  r515a     r515b     r515c
+
+. local util_extra "`r(varlist)'"
+
+. 
+. foreach v of local util_extra {
+  2.     quietly summarize `v' if !missing(`v'), meanonly
+  3.     if (r(min)>=1 & r(max)<=2) {
+  4.         replace `v' = (`v'==1) if inlist(`v',1,2)
+  5.     }
+  6.     else if (r(max)>20) {
+  7.         _bin0q4 `v', gen(`v'_b)
+  8.     }
+  9. }
+(73,257 real changes made)
+(83,329 real changes made)
+(79,522 real changes made)
+
+. 
+. local Wutil_in "r507* r508a r508b r509a r509b"
+
+. foreach v in r509c1 r509c2 r509c3 {
+  2.     cap confirm variable `v'_b
+  3.     if !_rc local Wutil_in "`Wutil_in' `v'_b"
+  4. }
+
+. foreach v of local util_extra {
+  2.     cap confirm variable `v'_b
+  3.     if !_rc local Wutil_in "`Wutil_in' `v'_b"
+  4.     else local Wutil_in "`Wutil_in' `v'"
+  5. }
+
+. 
+. * --------------------------------------------------------------------------------------
+. * 4) Edu: education
+. * --------------------------------------------------------------------------------------
+. ds r701*, has(type numeric)
+r701ak2  r701ak4  r701bk2  r701bk4  r701ck2  r701ck4  r701dk2  r701dk4  r701ek2  r701ek4  r701fk2  r701fk4  r701gk2  r701gk4  r701hk2  r701hk4  r701ik2  r701ik4  r701jk2  r701jk4  r701kk2  r701kk4  r701lk2  r701mk2  r701nk2  r701ok2  r701pk3
+r701ak3  r701ak5  r701bk3  r701bk5  r701ck3  r701ck5  r701dk3  r701dk5  r701ek3  r701ek5  r701fk3  r701fk5  r701gk3  r701gk5  r701hk3  r701hk5  r701ik3  r701ik5  r701jk3  r701jk5  r701kk3  r701kk5  r701lk3  r701mk3  r701nk3  r701ok3  r701qk3
+
+. local edu_raw "`r(varlist)'"
+
+. local Edu_in ""
+
+. 
+. foreach v of local edu_raw {
+  2.     quietly summarize `v' if !missing(`v'), meanonly
+  3.     if (r(min)>=1 & r(max)<=2) {
+  4.         replace `v' = (`v'==1) if inlist(`v',1,2)
+  5.         local Edu_in "`Edu_in' `v'"
+  6.     }
+  7.     else if (r(max)>20) {
+  8.         _bin0q4 `v', gen(`v'_b)
+  9.         local Edu_in "`Edu_in' `v'_b"
+ 10.     }
+ 11.     else {
+ 12.         local Edu_in "`Edu_in' `v'"
+ 13.     }
+ 14. }
+(84,276 missing values generated)
+(23,605 real changes made)
+(60,671 real changes made)
+(84,276 missing values generated)
+(63,261 real changes made)
+(21,015 real changes made)
+(84,276 missing values generated)
+(36,033 real changes made)
+(48,243 real changes made)
+(84,276 missing values generated)
+(52,132 real changes made)
+(32,144 real changes made)
+(84,276 missing values generated)
+(19,473 real changes made)
+(64,803 real changes made)
+(84,276 missing values generated)
+(16,415 real changes made)
+(67,861 real changes made)
+(84,276 missing values generated)
+(71,672 real changes made)
+(12,604 real changes made)
+(84,276 missing values generated)
+(71,133 real changes made)
+(13,143 real changes made)
+(84,276 missing values generated)
+(20,108 real changes made)
+(64,168 real changes made)
+(84,276 missing values generated)
+(31,343 real changes made)
+(52,933 real changes made)
+(84,276 missing values generated)
+(15,868 real changes made)
+(68,408 real changes made)
+(84,276 missing values generated)
+(12,016 real changes made)
+(72,260 real changes made)
+(84,276 missing values generated)
+(8,668 real changes made)
+(75,608 real changes made)
+(84,276 missing values generated)
+(11,010 real changes made)
+(73,266 real changes made)
+(84,276 missing values generated)
+(3,289 real changes made)
+(80,987 real changes made)
+(84,276 missing values generated)
+(66,943 real changes made)
+(17,333 real changes made)
+(84,276 missing values generated)
+(61,940 real changes made)
+(22,336 real changes made)
+(84,276 missing values generated)
+(83,912 real changes made)
+(364 real changes made)
+
+. 
+. * --------------------------------------------------------------------------------------
+. * 5) Hlth: health
+. * --------------------------------------------------------------------------------------
+. ds r711*, has(type numeric)
+r711ak2  r711ak4  r711bk3  r711ck2  r711ck4  r711dk3  r711ek2  r711ek4  r711fk3  r711gk2  r711gk4  r711hk3  r711ik2  r711ik4  r711jk3
+r711ak3  r711bk2  r711bk4  r711ck3  r711dk2  r711dk4  r711ek3  r711fk2  r711fk4  r711gk3  r711hk2  r711hk4  r711ik3  r711jk2  r711jk4
+
+. local hlth_raw "`r(varlist)'"
+
+. local Hlth_in ""
+
+. 
+. foreach v of local hlth_raw {
+  2.     quietly summarize `v' if !missing(`v'), meanonly
+  3.     if (r(min)>=1 & r(max)<=2) {
+  4.         replace `v' = (`v'==1) if inlist(`v',1,2)
+  5.         local Hlth_in "`Hlth_in' `v'"
+  6.     }
+  7.     else if (r(max)>20) {
+  8.         _bin0q4 `v', gen(`v'_b)
+  9.         local Hlth_in "`Hlth_in' `v'_b"
+ 10.     }
+ 11.     else {
+ 12.         cap drop ln1p_`v'
+ 13.         gen double ln1p_`v' = ln(1+`v') if !missing(`v')
+ 14.         _bin0q4 ln1p_`v', gen(`v'_b)
+ 15.         local Hlth_in "`Hlth_in' `v'_b"
+ 16.     }
+ 17. }
+(82,966 real changes made)
+(84,276 missing values generated)
+(82,966 real changes made)
+(1,310 real changes made)
+(84,276 missing values generated)
+(84,165 real changes made)
+(111 real changes made)
+(80,276 real changes made)
+(84,276 missing values generated)
+(80,276 real changes made)
+(4,000 real changes made)
+(84,276 missing values generated)
+(83,778 real changes made)
+(498 real changes made)
+(83,955 real changes made)
+(84,276 missing values generated)
+(83,955 real changes made)
+(321 real changes made)
+(84,276 missing values generated)
+(84,267 real changes made)
+(9 real changes made)
+(83,530 real changes made)
+(84,276 missing values generated)
+(83,530 real changes made)
+(746 real changes made)
+(84,276 missing values generated)
+(84,208 real changes made)
+(68 real changes made)
+(84,275 real changes made)
+(84,276 missing values generated)
+(84,275 real changes made)
+(1 real change made)
+(84,276 missing values generated)
+(84,276 real changes made)
+(84,216 real changes made)
+(84,276 missing values generated)
+(84,216 real changes made)
+(60 real changes made)
+(84,276 missing values generated)
+(84,268 real changes made)
+(8 real changes made)
+(84,238 real changes made)
+(84,276 missing values generated)
+(84,238 real changes made)
+(38 real changes made)
+(84,276 missing values generated)
+(84,265 real changes made)
+(11 real changes made)
+(84,051 real changes made)
+(84,276 missing values generated)
+(84,051 real changes made)
+(225 real changes made)
+(84,276 missing values generated)
+(84,185 real changes made)
+(91 real changes made)
+(83,863 real changes made)
+(84,276 missing values generated)
+(83,863 real changes made)
+(413 real changes made)
+(84,276 missing values generated)
+(84,218 real changes made)
+(58 real changes made)
+(84,220 real changes made)
+(84,276 missing values generated)
+(84,220 real changes made)
+(56 real changes made)
+(84,276 missing values generated)
+(84,262 real changes made)
+(14 real changes made)
+
+. 
+. * --------------------------------------------------------------------------------------
+. * 6) Poverty proxy (keep separate)
+. * --------------------------------------------------------------------------------------
+. cap drop lnpov
+
+. cap confirm numeric variable r710
+
+. if !_rc {
+.     gen double lnpov = ln(1+r710) if !missing(r710)
+.     cap drop lnpov_b
+.     _bin0q4 lnpov, gen(lnpov_b)
+(84,276 missing values generated)
+(9,456 real changes made)
+(74,820 real changes made)
+. }
+
+. 
+. * --------------------------------------------------------------------------------------
+. * 7) PCA (1 component each) + z-score
+. * --------------------------------------------------------------------------------------
+. cap noisily pca `Wbasic_in', components(1) correlation
+
+Principal components/correlation                 Number of obs    =     84,276
+                                                 Number of comp.  =          1
+                                                 Trace            =         16
+    Rotation: (unrotated = principal)            Rho              =     0.2256
+
+    --------------------------------------------------------------------------
+       Component |   Eigenvalue   Difference         Proportion   Cumulative
+    -------------+------------------------------------------------------------
+           Comp1 |       3.6095      2.29212             0.2256       0.2256
+           Comp2 |      1.31739     .0331452             0.0823       0.3079
+           Comp3 |      1.28424      .186716             0.0803       0.3882
+           Comp4 |      1.09752     .0523554             0.0686       0.4568
+           Comp5 |      1.04517     .0484995             0.0653       0.5221
+           Comp6 |       .99667    .00469408             0.0623       0.5844
+           Comp7 |      .991976     .0508646             0.0620       0.6464
+           Comp8 |      .941111     .0767107             0.0588       0.7052
+           Comp9 |        .8644    .00611774             0.0540       0.7592
+          Comp10 |      .858283     .0667967             0.0536       0.8129
+          Comp11 |      .791486     .0434687             0.0495       0.8624
+          Comp12 |      .748017      .302701             0.0468       0.9091
+          Comp13 |      .445316     .0158871             0.0278       0.9369
+          Comp14 |      .429429     .0592909             0.0268       0.9638
+          Comp15 |      .370138      .160785             0.0231       0.9869
+          Comp16 |      .209353            .             0.0131       1.0000
+    --------------------------------------------------------------------------
+
+Principal components (eigenvectors) 
+
+    --------------------------------------
+        Variable |    Comp1 | Unexplained 
+    -------------+----------+-------------
+        elec_cat |   0.3245 |         .62 
+           r502a |   0.1327 |       .9365 
+           r502b |  -0.3930 |       .4427 
+           r502c |   0.2946 |       .6867 
+     cook_market |   0.4328 |       .3239 
+          r503a1 |   0.1869 |       .8739 
+          r503a2 |   0.2894 |       .6977 
+          r503a3 |   0.3109 |       .6512 
+          r503a4 |   0.4229 |       .3544 
+          r503a5 |   0.0671 |       .9838 
+          r503a6 |   0.0418 |       .9937 
+          r503a7 |  -0.1578 |       .9101 
+          r503a8 |   0.0056 |       .9999 
+          r503a9 |   0.0520 |       .9902 
+         r503a10 |  -0.1431 |       .9261 
+         r503a11 |   0.0087 |       .9997 
+    --------------------------------------
+
+. if !_rc {
+.     cap drop Wbasic_pca1 Wbasic_z
+.     predict double Wbasic_pca1 if e(sample), score
+
+Scoring coefficients 
+    sum of squares(column-loading) = 1
+
+    ------------------------
+        Variable |    Comp1 
+    -------------+----------
+        elec_cat |   0.3245 
+           r502a |   0.1327 
+           r502b |  -0.3930 
+           r502c |   0.2946 
+     cook_market |   0.4328 
+          r503a1 |   0.1869 
+          r503a2 |   0.2894 
+          r503a3 |   0.3109 
+          r503a4 |   0.4229 
+          r503a5 |   0.0671 
+          r503a6 |   0.0418 
+          r503a7 |  -0.1578 
+          r503a8 |   0.0056 
+          r503a9 |   0.0520 
+         r503a10 |  -0.1431 
+         r503a11 |   0.0087 
+    ------------------------
+.     egen double Wbasic_z = std(Wbasic_pca1)
+. }
+
+. 
+. cap noisily pca `Wutil_in', components(1) correlation
+
+Principal components/correlation                 Number of obs    =     84,276
+                                                 Number of comp.  =          1
+                                                 Trace            =         25
+    Rotation: (unrotated = principal)            Rho              =     0.2651
+
+    --------------------------------------------------------------------------
+       Component |   Eigenvalue   Difference         Proportion   Cumulative
+    -------------+------------------------------------------------------------
+           Comp1 |      6.62757      2.94737             0.2651       0.2651
+           Comp2 |       3.6802      .768968             0.1472       0.4123
+           Comp3 |      2.91123      .532086             0.1164       0.5288
+           Comp4 |      2.37915       .56627             0.0952       0.6239
+           Comp5 |      1.81288      .444687             0.0725       0.6964
+           Comp6 |      1.36819      .172854             0.0547       0.7512
+           Comp7 |      1.19534      .288798             0.0478       0.7990
+           Comp8 |       .90654      .077622             0.0363       0.8352
+           Comp9 |      .828918     .0796234             0.0332       0.8684
+          Comp10 |      .749294    .00413874             0.0300       0.8984
+          Comp11 |      .745156      .295062             0.0298       0.9282
+          Comp12 |      .450093     .0920655             0.0180       0.9462
+          Comp13 |      .358028      .114739             0.0143       0.9605
+          Comp14 |      .243289     .0774368             0.0097       0.9702
+          Comp15 |      .165852     .0133955             0.0066       0.9769
+          Comp16 |      .152457     .0207891             0.0061       0.9830
+          Comp17 |      .131668     .0506763             0.0053       0.9882
+          Comp18 |     .0809914     .0145383             0.0032       0.9915
+          Comp19 |     .0664531     .0222073             0.0027       0.9941
+          Comp20 |     .0442457     .0102984             0.0018       0.9959
+          Comp21 |     .0339474    .00873783             0.0014       0.9973
+          Comp22 |     .0252095    .00495924             0.0010       0.9983
+          Comp23 |     .0202503    .00750613             0.0008       0.9991
+          Comp24 |     .0127442    .00244783             0.0005       0.9996
+          Comp25 |     .0102963            .             0.0004       1.0000
+    --------------------------------------------------------------------------
+
+Principal components (eigenvectors) 
+
+    --------------------------------------
+        Variable |    Comp1 | Unexplained 
+    -------------+----------+-------------
+            r507 |  -0.0410 |       .9888 
+           r508a |  -0.0607 |       .9755 
+           r508b |  -0.0525 |       .9818 
+           r509a |   0.0784 |       .9593 
+           r509b |   0.0634 |       .9733 
+        r509c1_b |   0.0738 |       .9639 
+        r509c2_b |   0.0779 |       .9598 
+        r509c3_b |   0.0781 |       .9595 
+          r511c1 |  -0.0899 |       .9464 
+         r511c2a |   0.3334 |       .2632 
+         r511c2b |   0.3423 |       .2234 
+         r511c2c |   0.3548 |       .1655 
+          r511c3 |   0.3340 |       .2605 
+        r514a_k2 |   0.3591 |       .1453 
+        r514a_k3 |   0.3387 |       .2396 
+        r514a_k4 |   0.3474 |       .1999 
+        r514b_k2 |   0.1362 |       .8771 
+        r514b_k3 |   0.1321 |       .8843 
+        r514b_k4 |   0.1319 |       .8847 
+        r514c_k2 |   0.1555 |       .8397 
+        r514c_k3 |   0.1455 |       .8598 
+        r514c_k4 |   0.1488 |       .8533 
+           r515a |  -0.0337 |       .9925 
+           r515b |  -0.0553 |       .9798 
+           r515c |  -0.0258 |       .9956 
+    --------------------------------------
+
+. if !_rc {
+.     cap drop Util_pca1 Util_z
+.     predict double Util_pca1 if e(sample), score
+
+Scoring coefficients 
+    sum of squares(column-loading) = 1
+
+    ------------------------
+        Variable |    Comp1 
+    -------------+----------
+            r507 |  -0.0410 
+           r508a |  -0.0607 
+           r508b |  -0.0525 
+           r509a |   0.0784 
+           r509b |   0.0634 
+        r509c1_b |   0.0738 
+        r509c2_b |   0.0779 
+        r509c3_b |   0.0781 
+          r511c1 |  -0.0899 
+         r511c2a |   0.3334 
+         r511c2b |   0.3423 
+         r511c2c |   0.3548 
+          r511c3 |   0.3340 
+        r514a_k2 |   0.3591 
+        r514a_k3 |   0.3387 
+        r514a_k4 |   0.3474 
+        r514b_k2 |   0.1362 
+        r514b_k3 |   0.1321 
+        r514b_k4 |   0.1319 
+        r514c_k2 |   0.1555 
+        r514c_k3 |   0.1455 
+        r514c_k4 |   0.1488 
+           r515a |  -0.0337 
+           r515b |  -0.0553 
+           r515c |  -0.0258 
+    ------------------------
+.     egen double Util_z = std(Util_pca1)
+. }
+
+. 
+. cap noisily pca `Edu_in', components(1) correlation
+
+Principal components/correlation                 Number of obs    =     84,276
+                                                 Number of comp.  =          1
+                                                 Trace            =         54
+    Rotation: (unrotated = principal)            Rho              =     0.2487
+
+    --------------------------------------------------------------------------
+       Component |   Eigenvalue   Difference         Proportion   Cumulative
+    -------------+------------------------------------------------------------
+           Comp1 |      13.4308      10.3391             0.2487       0.2487
+           Comp2 |      3.09174      .218213             0.0573       0.3060
+           Comp3 |      2.87353      .712432             0.0532       0.3592
+           Comp4 |       2.1611      .415294             0.0400       0.3992
+           Comp5 |       1.7458      .177258             0.0323       0.4315
+           Comp6 |      1.56855      .159164             0.0290       0.4606
+           Comp7 |      1.40938     .0234264             0.0261       0.4867
+           Comp8 |      1.38595     .0397181             0.0257       0.5123
+           Comp9 |      1.34624     .0182919             0.0249       0.5373
+          Comp10 |      1.32794     .0812074             0.0246       0.5619
+          Comp11 |      1.24674      .113918             0.0231       0.5850
+          Comp12 |      1.13282     .0547112             0.0210       0.6059
+          Comp13 |      1.07811     .0106292             0.0200       0.6259
+          Comp14 |      1.06748     .0207003             0.0198       0.6457
+          Comp15 |      1.04678     .0548023             0.0194       0.6651
+          Comp16 |      .991977     .0191489             0.0184       0.6834
+          Comp17 |      .972828       .02842             0.0180       0.7014
+          Comp18 |      .944408     .0282222             0.0175       0.7189
+          Comp19 |      .916186     .0655754             0.0170       0.7359
+          Comp20 |       .85061     .0268221             0.0158       0.7516
+          Comp21 |      .823788     .0201464             0.0153       0.7669
+          Comp22 |      .803642     .0241459             0.0149       0.7818
+          Comp23 |      .779496     .0132046             0.0144       0.7962
+          Comp24 |      .766291     .0350775             0.0142       0.8104
+          Comp25 |      .731214    .00395766             0.0135       0.8240
+          Comp26 |      .727256     .0195267             0.0135       0.8374
+          Comp27 |       .70773    .00275412             0.0131       0.8505
+          Comp28 |      .704975     .0287683             0.0131       0.8636
+          Comp29 |      .676207    .00642292             0.0125       0.8761
+          Comp30 |      .669784     .0381242             0.0124       0.8885
+          Comp31 |       .63166     .0414764             0.0117       0.9002
+          Comp32 |      .590184     .0543696             0.0109       0.9111
+          Comp33 |      .535814     .0285032             0.0099       0.9211
+          Comp34 |      .507311     .0359587             0.0094       0.9305
+          Comp35 |      .471352     .0631838             0.0087       0.9392
+          Comp36 |      .408168     .0333169             0.0076       0.9467
+          Comp37 |      .374851     .0639956             0.0069       0.9537
+          Comp38 |      .310856     .0265997             0.0058       0.9594
+          Comp39 |      .284256    .00702468             0.0053       0.9647
+          Comp40 |      .277231     .0120984             0.0051       0.9698
+          Comp41 |      .265133     .0722888             0.0049       0.9747
+          Comp42 |      .192844     .0117689             0.0036       0.9783
+          Comp43 |      .181075     .0119801             0.0034       0.9817
+          Comp44 |      .169095     .0362796             0.0031       0.9848
+          Comp45 |      .132816     .0153317             0.0025       0.9873
+          Comp46 |      .117484      .015017             0.0022       0.9894
+          Comp47 |      .102467    .00404476             0.0019       0.9913
+          Comp48 |     .0984222     .0173722             0.0018       0.9932
+          Comp49 |       .08105    .00441857             0.0015       0.9947
+          Comp50 |     .0766315     .0175766             0.0014       0.9961
+          Comp51 |     .0590549    .00258516             0.0011       0.9972
+          Comp52 |     .0564697    .00758884             0.0010       0.9982
+          Comp53 |     .0488809    .00135608             0.0009       0.9991
+          Comp54 |     .0475248            .             0.0009       1.0000
+    --------------------------------------------------------------------------
+
+Principal components (eigenvectors) 
+
+    --------------------------------------
+        Variable |    Comp1 | Unexplained 
+    -------------+----------+-------------
+         r701ak2 |  -0.0026 |       .9999 
+       r701ak3_b |  -0.1687 |        .618 
+       r701ak4_b |   0.1493 |       .7004 
+         r701ak5 |   0.1579 |       .6652 
+         r701bk2 |  -0.0305 |       .9875 
+       r701bk3_b |  -0.1664 |       .6282 
+       r701bk4_b |   0.1718 |       .6035 
+         r701bk5 |   0.1796 |       .5668 
+         r701ck2 |  -0.0086 |        .999 
+         r701ck3 |  -0.1429 |       .7258 
+       r701ck4_b |   0.2090 |       .4132 
+         r701ck5 |   0.2173 |       .3657 
+       r701dk2_b |  -0.1549 |       .6777 
+       r701dk3_b |  -0.0909 |       .8889 
+       r701dk4_b |   0.1223 |       .7991 
+         r701dk5 |   0.1274 |       .7819 
+         r701ek2 |  -0.0327 |       .9857 
+         r701ek3 |  -0.1407 |        .734 
+       r701ek4_b |   0.2080 |       .4187 
+         r701ek5 |   0.2181 |       .3612 
+         r701fk2 |  -0.0565 |       .9572 
+         r701fk3 |  -0.1288 |       .7772 
+       r701fk4_b |   0.1342 |       .7579 
+         r701fk5 |   0.1527 |       .6869 
+         r701gk2 |  -0.0447 |       .9731 
+         r701gk3 |  -0.1385 |       .7422 
+       r701gk4_b |   0.2103 |       .4059 
+         r701gk5 |   0.2206 |       .3466 
+         r701hk2 |  -0.0548 |       .9596 
+         r701hk3 |  -0.1020 |       .8602 
+       r701hk4_b |   0.1529 |       .6862 
+         r701hk5 |   0.1784 |       .5724 
+         r701ik2 |  -0.0398 |       .9787 
+         r701ik3 |  -0.1139 |       .8259 
+       r701ik4_b |   0.2026 |       .4485 
+         r701ik5 |   0.2149 |       .3797 
+         r701jk2 |  -0.0457 |        .972 
+         r701jk3 |  -0.1197 |       .8076 
+       r701jk4_b |   0.1861 |        .535 
+         r701jk5 |   0.2030 |       .4463 
+         r701kk2 |  -0.0335 |        .985 
+         r701kk3 |  -0.0749 |       .9247 
+       r701kk4_b |   0.1777 |        .576 
+         r701kk5 |   0.1975 |       .4761 
+         r701lk2 |  -0.0142 |       .9973 
+         r701lk3 |  -0.0286 |        .989 
+         r701mk2 |  -0.0120 |       .9981 
+         r701mk3 |  -0.0179 |       .9957 
+         r701nk2 |  -0.0101 |       .9986 
+         r701nk3 |  -0.0154 |       .9968 
+         r701ok2 |  -0.0100 |       .9987 
+       r701ok3_b |  -0.1297 |       .7742 
+       r701pk3_b |  -0.1157 |       .8202 
+       r701qk3_b |  -0.0091 |       .9989 
+    --------------------------------------
+
+. if !_rc {
+.     cap drop Edu_pca1 Edu_z
+.     predict double Edu_pca1 if e(sample), score
+
+Scoring coefficients 
+    sum of squares(column-loading) = 1
+
+    ------------------------
+        Variable |    Comp1 
+    -------------+----------
+         r701ak2 |  -0.0026 
+       r701ak3_b |  -0.1687 
+       r701ak4_b |   0.1493 
+         r701ak5 |   0.1579 
+         r701bk2 |  -0.0305 
+       r701bk3_b |  -0.1664 
+       r701bk4_b |   0.1718 
+         r701bk5 |   0.1796 
+         r701ck2 |  -0.0086 
+         r701ck3 |  -0.1429 
+       r701ck4_b |   0.2090 
+         r701ck5 |   0.2173 
+       r701dk2_b |  -0.1549 
+       r701dk3_b |  -0.0909 
+       r701dk4_b |   0.1223 
+         r701dk5 |   0.1274 
+         r701ek2 |  -0.0327 
+         r701ek3 |  -0.1407 
+       r701ek4_b |   0.2080 
+         r701ek5 |   0.2181 
+         r701fk2 |  -0.0565 
+         r701fk3 |  -0.1288 
+       r701fk4_b |   0.1342 
+         r701fk5 |   0.1527 
+         r701gk2 |  -0.0447 
+         r701gk3 |  -0.1385 
+       r701gk4_b |   0.2103 
+         r701gk5 |   0.2206 
+         r701hk2 |  -0.0548 
+         r701hk3 |  -0.1020 
+       r701hk4_b |   0.1529 
+         r701hk5 |   0.1784 
+         r701ik2 |  -0.0398 
+         r701ik3 |  -0.1139 
+       r701ik4_b |   0.2026 
+         r701ik5 |   0.2149 
+         r701jk2 |  -0.0457 
+         r701jk3 |  -0.1197 
+       r701jk4_b |   0.1861 
+         r701jk5 |   0.2030 
+         r701kk2 |  -0.0335 
+         r701kk3 |  -0.0749 
+       r701kk4_b |   0.1777 
+         r701kk5 |   0.1975 
+         r701lk2 |  -0.0142 
+         r701lk3 |  -0.0286 
+         r701mk2 |  -0.0120 
+         r701mk3 |  -0.0179 
+         r701nk2 |  -0.0101 
+         r701nk3 |  -0.0154 
+         r701ok2 |  -0.0100 
+       r701ok3_b |  -0.1297 
+       r701pk3_b |  -0.1157 
+       r701qk3_b |  -0.0091 
+    ------------------------
+.     egen double Edu_z = std(Edu_pca1)
+. }
+
+. 
+. cap noisily pca `Hlth_in', components(1) correlation
+(r711ek4_b dropped because of zero variance)
+
+Principal components/correlation                 Number of obs    =     84,276
+                                                 Number of comp.  =          1
+                                                 Trace            =         29
+    Rotation: (unrotated = principal)            Rho              =     0.1097
+
+    --------------------------------------------------------------------------
+       Component |   Eigenvalue   Difference         Proportion   Cumulative
+    -------------+------------------------------------------------------------
+           Comp1 |      3.18002      .771009             0.1097       0.1097
+           Comp2 |      2.40901     .0130667             0.0831       0.1927
+           Comp3 |      2.39594      .142458             0.0826       0.2753
+           Comp4 |      2.25348      .192993             0.0777       0.3531
+           Comp5 |      2.06049     .0604965             0.0711       0.4241
+           Comp6 |      1.99999      .136028             0.0690       0.4931
+           Comp7 |      1.86397      .077487             0.0643       0.5573
+           Comp8 |      1.78648     .0443019             0.0616       0.6189
+           Comp9 |      1.74218      .266449             0.0601       0.6790
+          Comp10 |      1.47573      .439842             0.0509       0.7299
+          Comp11 |      1.03589      .130938             0.0357       0.7656
+          Comp12 |      .904949     .0350957             0.0312       0.7968
+          Comp13 |      .869854     .0162812             0.0300       0.8268
+          Comp14 |      .853572     .0369997             0.0294       0.8563
+          Comp15 |      .816573     .0852721             0.0282       0.8844
+          Comp16 |      .731301     .0484061             0.0252       0.9096
+          Comp17 |      .682895      .164961             0.0235       0.9332
+          Comp18 |      .517933     .0260687             0.0179       0.9510
+          Comp19 |      .491865      .346486             0.0170       0.9680
+          Comp20 |      .145379     .0217534             0.0050       0.9730
+          Comp21 |      .123625    .00968638             0.0043       0.9773
+          Comp22 |      .113939    .00924281             0.0039       0.9812
+          Comp23 |      .104696    .00300137             0.0036       0.9848
+          Comp24 |      .101695    .00382264             0.0035       0.9883
+          Comp25 |     .0978723    .00652084             0.0034       0.9917
+          Comp26 |     .0913514     .0047322             0.0032       0.9949
+          Comp27 |     .0866192     .0239196             0.0030       0.9978
+          Comp28 |     .0626996     .0626996             0.0022       1.0000
+          Comp29 |            0            .             0.0000       1.0000
+    --------------------------------------------------------------------------
+
+Principal components (eigenvectors) 
+
+    --------------------------------------
+        Variable |    Comp1 | Unexplained 
+    -------------+----------+-------------
+         r711ak2 |   0.3658 |       .5746 
+       r711ak3_b |   0.3612 |       .5851 
+       r711ak4_b |   0.1557 |       .9229 
+         r711bk2 |   0.2801 |       .7505 
+       r711bk3_b |   0.2702 |       .7678 
+       r711bk4_b |   0.1027 |       .9665 
+         r711ck2 |   0.2675 |       .7724 
+       r711ck3_b |   0.2601 |       .7848 
+       r711ck4_b |   0.0630 |       .9874 
+         r711dk2 |   0.3062 |       .7018 
+       r711dk3_b |   0.2970 |       .7195 
+       r711dk4_b |   0.1072 |       .9634 
+         r711ek2 |  -0.0010 |           1 
+       r711ek3_b |  -0.0010 |           1 
+         r711fk2 |   0.2245 |       .8398 
+       r711fk3_b |   0.2327 |       .8277 
+       r711fk4_b |   0.1323 |       .9444 
+         r711gk2 |   0.1493 |       .9291 
+       r711gk3_b |   0.1701 |        .908 
+       r711gk4_b |   0.1382 |       .9392 
+         r711hk2 |   0.0510 |       .9917 
+       r711hk3_b |   0.0476 |       .9928 
+       r711hk4_b |   0.0308 |        .997 
+         r711ik2 |   0.0804 |       .9794 
+       r711ik3_b |   0.0743 |       .9824 
+       r711ik4_b |   0.0330 |       .9965 
+         r711jk2 |   0.0298 |       .9972 
+       r711jk3_b |   0.0239 |       .9982 
+       r711jk4_b |   0.0093 |       .9997 
+    --------------------------------------
+
+. if !_rc {
+.     cap drop Hlth_pca1 Hlth_z
+.     predict double Hlth_pca1 if e(sample), score
+
+Scoring coefficients 
+    sum of squares(column-loading) = 1
+
+    ------------------------
+        Variable |    Comp1 
+    -------------+----------
+         r711ak2 |   0.3658 
+       r711ak3_b |   0.3612 
+       r711ak4_b |   0.1557 
+         r711bk2 |   0.2801 
+       r711bk3_b |   0.2702 
+       r711bk4_b |   0.1027 
+         r711ck2 |   0.2675 
+       r711ck3_b |   0.2601 
+       r711ck4_b |   0.0630 
+         r711dk2 |   0.3062 
+       r711dk3_b |   0.2970 
+       r711dk4_b |   0.1072 
+         r711ek2 |  -0.0010 
+       r711ek3_b |  -0.0010 
+         r711fk2 |   0.2245 
+       r711fk3_b |   0.2327 
+       r711fk4_b |   0.1323 
+         r711gk2 |   0.1493 
+       r711gk3_b |   0.1701 
+       r711gk4_b |   0.1382 
+         r711hk2 |   0.0510 
+       r711hk3_b |   0.0476 
+       r711hk4_b |   0.0308 
+         r711ik2 |   0.0804 
+       r711ik3_b |   0.0743 
+       r711ik4_b |   0.0330 
+         r711jk2 |   0.0298 
+       r711jk3_b |   0.0239 
+       r711jk4_b |   0.0093 
+    ------------------------
+.     egen double Hlth_z = std(Hlth_pca1)
+. }
+
+. 
+. /****************************************************************************************
+> I. PROBABILISTIC MODELS (TARGETING / UTILIZATION) -- NO BRACES, SEPARATION-SAFE
+> ****************************************************************************************/
+. 
+. * --------------------
+. * 0) Radius
+. * --------------------
+. local R 10
+
+. 
+. * --------------------
+. * 1) Target combo outcome (bitmask) + collapsed multinomial for stability
+. * --------------------
+. cap drop tg_tangkap tg_budidaya tg_garam y_combo y_any y_combo3
+
+. gen byte tg_tangkap  = .
+(84,276 missing values generated)
+
+. gen byte tg_budidaya = .
+(84,276 missing values generated)
+
+. gen byte tg_garam    = .
+(84,276 missing values generated)
+
+. 
+. cap confirm numeric variable r308b1a
+
+. if _rc==0 replace tg_tangkap  = (r308b1a==1) if !missing(r308b1a)
+(84,276 real changes made)
+
+. 
+. cap confirm numeric variable r308b1b
+
+. if _rc==0 replace tg_budidaya = (r308b1b==1) if !missing(r308b1b)
+(84,276 real changes made)
+
+. 
+. cap confirm numeric variable r308b1c
+
+. if _rc==0 replace tg_garam    = (r308b1c==1) if !missing(r308b1c)
+(84,276 real changes made)
+
+. 
+. gen byte y_combo = tg_tangkap + 2*tg_budidaya + 4*tg_garam if ///
+>     !missing(tg_tangkap) & !missing(tg_budidaya) & !missing(tg_garam)
+
+. 
+. label define y_combo_lbl 0 "None" 1 "Tangkap" 2 "Budidaya" 3 "Tangkap+Budidaya" ///
+>                        4 "Tambak garam" 5 "Tangkap+Garam" 6 "Budidaya+Garam" ///
+>                        7 "Tangkap+Budidaya+Garam", replace
+
+. label values y_combo y_combo_lbl
+
+. 
+. gen byte y_any = (y_combo>0) if !missing(y_combo)
+
+. label define y_any_lbl 0 "Non-target" 1 "Target", replace
+
+. label values y_any y_any_lbl
+
+. 
+. * Collapse to reduce sparse-category instability for mlogit:
+. * 0=None, 1=Tangkap-only, 2=Other (any budidaya/garam or mixed)
+. gen byte y_combo3 = .
+(84,276 missing values generated)
+
+. replace y_combo3 = 0 if y_combo==0
+(72,039 real changes made)
+
+. replace y_combo3 = 1 if y_combo==1
+(8,327 real changes made)
+
+. replace y_combo3 = 2 if inlist(y_combo,2,3,4,5,6,7)
+(3,910 real changes made)
+
+. label define y_combo3_lbl 0 "None" 1 "Tangkap-only" 2 "Other/mixed", replace
+
+. label values y_combo3 y_combo3_lbl
+
+. 
+. * --------------------
+. * 2) Utilization outcome: DO NOT overwrite r308a; build r308a_bin safely
+. * --------------------
+. cap drop r308a_bin y_use
+
+. gen byte r308a_bin = .
+(84,276 missing values generated)
+
+. cap confirm numeric variable r308a
+
+. if _rc==0 {
+.     quietly summarize r308a if !missing(r308a), meanonly
+.     if (r(min)>=1 & r(max)<=2) replace r308a_bin = (r308a==1) if inlist(r308a,1,2)
+(84,276 real changes made)
+.     else replace r308a_bin = r308a if inlist(r308a,0,1)
+. }
+
+. gen byte y_use = r308a_bin if inlist(r308a_bin,0,1)
+
+. label define y_use_lbl 0 "No" 1 "Yes", replace
+
+. label values y_use y_use_lbl
+
+. 
+. * --------------------
+. * 3) SPBUN access: build VARIANTS (OR), not all at once
+. * --------------------
+. local Xspbun_dist ""
+
+. cap confirm numeric variable D_v
+
+. if _rc==0 local Xspbun_dist "c.D_v"
+
+. 
+. local Xspbun_count ""
+
+. cap confirm numeric variable C`R'_w1
+
+. if _rc==0 local Xspbun_count "c.C`R'_w1"
+
+. 
+. * Treatment = any SPBUN within R
+. cap drop T_spbun_inR
+
+. gen byte T_spbun_inR = .
+(84,276 missing values generated)
+
+. cap confirm numeric variable C`R'_w1
+
+. if _rc==0 replace T_spbun_inR = (C`R'_w1>0) if !missing(C`R'_w1)
+(84,276 real changes made)
+
+. label define T_spbun_inR_lbl 0 "No SPBUN within R" 1 ">=1 SPBUN within R", replace
+
+. label values T_spbun_inR T_spbun_inR_lbl
+
+. 
+. * --------------------
+. * 4) PCA blocks 
+. * --------------------
+. local Xpca ""
+
+. foreach v in Wbasic_z Util_z Edu_z Hlth_z lnpov {
+  2.     cap confirm numeric variable `v'
+  3.     if _rc==0 local Xpca "`Xpca' c.`v'"
+  4. }
+
+. 
+. * --------------------
+. * 5) Controls (IMPORTANT: exclude r308a/r308a_bin from RHS for y_any/y_use)
+. * --------------------
+. local Xctrl ""
+
+. foreach v in r308b1d r308b1e r309a r309b r309d r309e r310 r403a r403c1 r403c2 r105 {
+  2.     cap confirm numeric variable `v'
+  3.     if _rc==0 local Xctrl "`Xctrl' c.`v'"
+  4. }
+
+. cap confirm variable r309c_cat
+
+. if _rc==0 local Xctrl "`Xctrl' i.r309c_cat"
+
+. 
+. * --------------------
+. * 6) Model 1: Access-driven (run distance-variant and count-variant separately)
+. * --------------------
+. estimates clear
+
+. local EST_PROB ""
+
+. 
+. * (A) mlogit on collapsed outcome for stability
+. cap noisily mlogit y_combo3 `Xspbun_dist' `Xpca' `Xctrl', baseoutcome(0) vce(cluster kab)
+
+Iteration 0:   log pseudolikelihood = -11989.288  
+Iteration 1:   log pseudolikelihood = -4866.1114  
+Iteration 2:   log pseudolikelihood = -4331.1633  
+Iteration 3:   log pseudolikelihood =  -4131.921  
+Iteration 4:   log pseudolikelihood = -4127.3635  
+Iteration 5:   log pseudolikelihood = -4127.3536  
+Iteration 6:   log pseudolikelihood = -4127.3536  
+
+Multinomial logistic regression                        Number of obs =  17,123
+                                                       Wald chi2(32) = 1321.90
+                                                       Prob > chi2   =  0.0000
+Log pseudolikelihood = -4127.3536                      Pseudo R2     =  0.6557
+
+                                  (Std. err. adjusted for 257 clusters in kab)
+------------------------------------------------------------------------------
+             |               Robust
+    y_combo3 | Coefficient  std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+None         |  (base outcome)
+-------------+----------------------------------------------------------------
+Tangkap_only |
+         D_v |  -.0510518   .0139148    -3.67   0.000    -.0783244   -.0237793
+    Wbasic_z |  -.4018562   .1394813    -2.88   0.004    -.6752346   -.1284778
+      Util_z |   .0477252   .0757062     0.63   0.528    -.1006563    .1961067
+       Edu_z |   .1475293     .10376     1.42   0.155    -.0558364    .3508951
+      Hlth_z |   .0928593   .0572407     1.62   0.105    -.0193303     .205049
+       lnpov |   .1441674   .0546271     2.64   0.008     .0371003    .2512345
+     r308b1d |   2.199362   .1175813    18.71   0.000     1.968907    2.429817
+     r308b1e |   2.344169   .1184651    19.79   0.000     2.111982    2.576357
+       r309a |   .1788784   .2227628     0.80   0.422    -.2577287    .6154855
+       r309b |     .02502   .1462691     0.17   0.864    -.2616622    .3117022
+       r309d |   .0736475   .1152134     0.64   0.523    -.1521666    .2994616
+       r309e |   .3012528   .2372307     1.27   0.204    -.1637108    .7662163
+        r310 |   -.927919   .1648541    -5.63   0.000    -1.251027   -.6048109
+       r403a |   .0333735   .0231036     1.44   0.149    -.0119087    .0786557
+      r403c1 |   .2236494   .0763351     2.93   0.003     .0740354    .3732635
+      r403c2 |   .0478178    .069768     0.69   0.493     -.088925    .1845606
+       _cons |  -4.759436   .7482422    -6.36   0.000    -6.225964   -3.292908
+-------------+----------------------------------------------------------------
+Other_mixed  |
+         D_v |   -.042672   .0133476    -3.20   0.001    -.0688328   -.0165113
+    Wbasic_z |   .1379183   .1515131     0.91   0.363    -.1590419    .4348786
+      Util_z |   .0453996    .074018     0.61   0.540    -.0996731    .1904722
+       Edu_z |   .0147982   .1085235     0.14   0.892     -.197904    .2275004
+      Hlth_z |   .0926601   .0548264     1.69   0.091    -.0147976    .2001178
+       lnpov |   .2073485   .0562313     3.69   0.000     .0971371    .3175599
+     r308b1d |   2.088958   .1234813    16.92   0.000     1.846939    2.330977
+     r308b1e |   2.100633   .1267121    16.58   0.000     1.852281    2.348984
+       r309a |  -.2102774   .2635176    -0.80   0.425    -.7267624    .3062076
+       r309b |   .0940234   .1758946     0.53   0.593    -.2507238    .4387706
+       r309d |   .0877026   .1271675     0.69   0.490    -.1615412    .3369464
+       r309e |  -.0925772   .2388634    -0.39   0.698    -.5607408    .3755864
+        r310 |  -1.121554   .1714361    -6.54   0.000    -1.457562   -.7855451
+       r403a |  -.0682127   .0270275    -2.52   0.012    -.1211857   -.0152398
+      r403c1 |   .3294193   .0702991     4.69   0.000     .1916357    .4672029
+      r403c2 |  -.1851336   .0884471    -2.09   0.036    -.3584868   -.0117804
+       _cons |  -2.935617   .8831837    -3.32   0.001    -4.666626   -1.204609
+------------------------------------------------------------------------------
+
+. if _rc==0 { estimates store m1_mlogit3_dist; local EST_PROB "`EST_PROB' m1_mlogit3_dist" }
+. 
+. cap noisily mlogit y_combo3 `Xspbun_count' `Xpca' `Xctrl', baseoutcome(0) vce(cluster kab)
+
+Iteration 0:   log pseudolikelihood = -42581.674  
+Iteration 1:   log pseudolikelihood = -15347.924  
+Iteration 2:   log pseudolikelihood = -13189.875  
+Iteration 3:   log pseudolikelihood = -11549.668  
+Iteration 4:   log pseudolikelihood = -11516.166  
+Iteration 5:   log pseudolikelihood = -11515.807  
+Iteration 6:   log pseudolikelihood = -11515.806  
+
+Multinomial logistic regression                        Number of obs =  84,276
+                                                       Wald chi2(32) = 3076.19
+                                                       Prob > chi2   =  0.0000
+Log pseudolikelihood = -11515.806                      Pseudo R2     =  0.7296
+
+                                  (Std. err. adjusted for 514 clusters in kab)
+------------------------------------------------------------------------------
+             |               Robust
+    y_combo3 | Coefficient  std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+None         |  (base outcome)
+-------------+----------------------------------------------------------------
+Tangkap_only |
+      C10_w1 |    .076893   .1210969     0.63   0.525    -.1604525    .3142385
+    Wbasic_z |  -.1808635   .0816458    -2.22   0.027    -.3408863   -.0208407
+      Util_z |   .0274143   .0454573     0.60   0.546    -.0616804     .116509
+       Edu_z |   .0066189   .0777014     0.09   0.932    -.1456731    .1589109
+      Hlth_z |   .0025157   .0419788     0.06   0.952    -.0797613    .0847927
+       lnpov |   .0886383   .0381384     2.32   0.020     .0138885    .1633882
+     r308b1d |   2.883379   .0861468    33.47   0.000     2.714534    3.052223
+     r308b1e |   2.300759   .0972808    23.65   0.000     2.110092    2.491426
+       r309a |   .4381295   .1530956     2.86   0.004     .1380677    .7381913
+       r309b |   .1489322   .0935976     1.59   0.112    -.0345157    .3323801
+       r309d |   .0133987   .0743672     0.18   0.857    -.1323583    .1591558
+       r309e |   .4268546   .1662434     2.57   0.010     .1010235    .7526857
+        r310 |   -.867129   .0992781    -8.73   0.000    -1.061711   -.6725475
+       r403a |   .0186027    .018798     0.99   0.322    -.0182408    .0554462
+      r403c1 |   .1054864   .0470646     2.24   0.025     .0132414    .1977314
+      r403c2 |  -.0521243   .0488877    -1.07   0.286    -.1479425    .0436939
+       _cons |  -6.575202   .4837425   -13.59   0.000     -7.52332   -5.627084
+-------------+----------------------------------------------------------------
+Other_mixed  |
+      C10_w1 |   .2087129   .1152142     1.81   0.070    -.0171027    .4345286
+    Wbasic_z |   .1548818   .0959687     1.61   0.107    -.0332135    .3429771
+      Util_z |    .038926   .0445708     0.87   0.382    -.0484311    .1262831
+       Edu_z |   -.201798   .0857165    -2.35   0.019    -.3697993   -.0337967
+      Hlth_z |   .0238897   .0439618     0.54   0.587    -.0622738    .1100533
+       lnpov |   .1712488   .0438097     3.91   0.000     .0853833    .2571143
+     r308b1d |   2.713066   .0898846    30.18   0.000     2.536895    2.889236
+     r308b1e |   2.022178   .0983211    20.57   0.000     1.829472    2.214883
+       r309a |   .4931133   .2067603     2.38   0.017     .0878706    .8983561
+       r309b |   .1208146    .107095     1.13   0.259    -.0890877    .3307168
+       r309d |   .1500283   .0699743     2.14   0.032     .0128813    .2871753
+       r309e |   .2012711   .1324825     1.52   0.129    -.0583899    .4609321
+        r310 |  -1.173686    .108107   -10.86   0.000    -1.385571   -.9617999
+       r403a |  -.0702096   .0214724    -3.27   0.001    -.1122948   -.0281244
+      r403c1 |   .2145027   .0470055     4.56   0.000     .1223736    .3066318
+      r403c2 |   -.255527   .0579145    -4.41   0.000    -.3690374   -.1420167
+       _cons |  -6.015842    .653002    -9.21   0.000    -7.295703   -4.735982
+------------------------------------------------------------------------------
+. if _rc==0 { estimates store m1_mlogit3_count; local EST_PROB "`EST_PROB' m1_mlogit3_count" }
+. 
+. * (B) y_any: restrict to coastal sample to avoid separation (if r308a_bin exists)
+. local IFCOAST ""
+. cap confirm numeric variable r308a_bin
+. if _rc==0 local IFCOAST "if r308a_bin==1"
+. 
+. cap noisily logit  y_any `Xspbun_dist' `Xpca' `Xctrl' `IFCOAST', vce(cluster kab)
+
+Iteration 0:   log pseudolikelihood = -1059.9433  
+Iteration 1:   log pseudolikelihood = -1015.1443  
+Iteration 2:   log pseudolikelihood = -1010.8629  
+Iteration 3:   log pseudolikelihood =  -1010.852  
+Iteration 4:   log pseudolikelihood =  -1010.852  
+
+Logistic regression                                     Number of obs =  4,271
+                                                        Wald chi2(16) =  78.92
+                                                        Prob > chi2   = 0.0000
+Log pseudolikelihood = -1010.852                        Pseudo R2     = 0.0463
+
+                                  (Std. err. adjusted for 217 clusters in kab)
+------------------------------------------------------------------------------
+             |               Robust
+       y_any | Coefficient  std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+         D_v |  -.0019176     .01685    -0.11   0.909    -.0349429    .0311078
+    Wbasic_z |  -.1327768   .1497634    -0.89   0.375    -.4263078    .1607541
+      Util_z |  -.0541155   .0823647    -0.66   0.511    -.2155474    .1073164
+       Edu_z |   .1047971   .1108624     0.95   0.345    -.1124892    .3220834
+      Hlth_z |   .0724108   .0931264     0.78   0.437    -.1101135    .2549351
+       lnpov |   .1019531   .0527433     1.93   0.053    -.0014218    .2053281
+     r308b1d |  -.8135128   .2354915    -3.45   0.001    -1.275068   -.3519579
+     r308b1e |  -.4053102   .1775104    -2.28   0.022    -.7532241   -.0573963
+       r309a |  -.5740487   .5534425    -1.04   0.300    -1.658776    .5106787
+       r309b |  -.0084882    .210349    -0.04   0.968    -.4207647    .4037883
+       r309d |   .1362699   .2058415     0.66   0.508     -.267172    .5397119
+       r309e |  -.2898201   .4126658    -0.70   0.482     -1.09863    .5189901
+        r310 |  -.3186716   .2724015    -1.17   0.242    -.8525687    .2152256
+       r403a |  -.0189863   .0213198    -0.89   0.373    -.0607724    .0227998
+      r403c1 |   .2482667   .0870225     2.85   0.004     .0777057    .4188277
+      r403c2 |   .0000156   .1025099     0.00   1.000    -.2009001    .2009314
+       _cons |   6.557934   1.826842     3.59   0.000     2.977389    10.13848
+------------------------------------------------------------------------------
+. if _rc==0 { estimates store m1_logit_any_dist; local EST_PROB "`EST_PROB' m1_logit_any_dist" }
+. 
+. cap noisily probit y_any `Xspbun_dist' `Xpca' `Xctrl' `IFCOAST', vce(cluster kab)
+
+Iteration 0:   log pseudolikelihood = -1059.9433  
+Iteration 1:   log pseudolikelihood = -1012.0067  
+Iteration 2:   log pseudolikelihood = -1010.4127  
+Iteration 3:   log pseudolikelihood = -1010.4097  
+Iteration 4:   log pseudolikelihood = -1010.4097  
+
+Probit regression                                       Number of obs =  4,271
+                                                        Wald chi2(16) =  83.05
+                                                        Prob > chi2   = 0.0000
+Log pseudolikelihood = -1010.4097                       Pseudo R2     = 0.0467
+
+                                  (Std. err. adjusted for 217 clusters in kab)
+------------------------------------------------------------------------------
+             |               Robust
+       y_any | Coefficient  std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+         D_v |   -.001273   .0080363    -0.16   0.874    -.0170239    .0144778
+    Wbasic_z |  -.0660325   .0698914    -0.94   0.345    -.2030172    .0709522
+      Util_z |  -.0225669   .0406339    -0.56   0.579    -.1022079     .057074
+       Edu_z |   .0545263   .0536587     1.02   0.310    -.0506429    .1596955
+      Hlth_z |   .0332288   .0432043     0.77   0.442    -.0514501    .1179077
+       lnpov |   .0502774   .0265188     1.90   0.058    -.0016985    .1022534
+     r308b1d |  -.3908382   .1053444    -3.71   0.000    -.5973095    -.184367
+     r308b1e |  -.2061033   .0805812    -2.56   0.011    -.3640396   -.0481669
+       r309a |  -.2717244    .247996    -1.10   0.273    -.7577876    .2143388
+       r309b |  -.0062677   .0979092    -0.06   0.949    -.1981662    .1856307
+       r309d |   .0694877   .0930548     0.75   0.455    -.1128965    .2518718
+       r309e |  -.1368908   .1851277    -0.74   0.460    -.4997345    .2259529
+        r310 |  -.1439748   .1242378    -1.16   0.247    -.3874764    .0995268
+       r403a |  -.0119308   .0113373    -1.05   0.293    -.0341515      .01029
+      r403c1 |   .1130211   .0396258     2.85   0.004     .0353558    .1906863
+      r403c2 |  -.0045347   .0461886    -0.10   0.922    -.0950628    .0859933
+       _cons |   3.381394   .8332588     4.06   0.000     1.748236    5.014551
+------------------------------------------------------------------------------
+. if _rc==0 { estimates store m1_probit_any_dist; local EST_PROB "`EST_PROB' m1_probit_any_dist" }
+. 
+. cap noisily logit  y_any `Xspbun_count' `Xpca' `Xctrl' `IFCOAST', vce(cluster kab)
+
+Iteration 0:   log pseudolikelihood = -2812.2278  
+Iteration 1:   log pseudolikelihood = -2701.6013  
+Iteration 2:   log pseudolikelihood = -2689.5121  
+Iteration 3:   log pseudolikelihood = -2689.4873  
+Iteration 4:   log pseudolikelihood = -2689.4873  
+
+Logistic regression                                     Number of obs = 12,968
+                                                        Wald chi2(16) = 146.58
+                                                        Prob > chi2   = 0.0000
+Log pseudolikelihood = -2689.4873                       Pseudo R2     = 0.0436
+
+                                  (Std. err. adjusted for 327 clusters in kab)
+------------------------------------------------------------------------------
+             |               Robust
+       y_any | Coefficient  std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+      C10_w1 |  -.2000103    .101178    -1.98   0.048    -.3983155   -.0017051
+    Wbasic_z |   .0529661   .0797693     0.66   0.507    -.1033788     .209311
+      Util_z |   .0156913   .0581292     0.27   0.787    -.0982399    .1296224
+       Edu_z |  -.0170404    .088374    -0.19   0.847    -.1902503    .1561695
+      Hlth_z |  -.0331645   .0405098    -0.82   0.413    -.1125623    .0462332
+       lnpov |   .0260435   .0407799     0.64   0.523    -.0538837    .1059707
+     r308b1d |  -.7020328   .1590607    -4.41   0.000    -1.013786   -.3902795
+     r308b1e |  -.7636953   .1413328    -5.40   0.000    -1.040703    -.486688
+       r309a |   .3180317   .2354427     1.35   0.177    -.1434276    .7794909
+       r309b |   .3497388   .1124783     3.11   0.002     .1292853    .5701923
+       r309d |   .0823803   .1022172     0.81   0.420    -.1179617    .2827224
+       r309e |   .0717916   .1914782     0.37   0.708    -.3034988     .447082
+        r310 |  -.3756486   .1520203    -2.47   0.013    -.6736028   -.0776944
+       r403a |  -.0350423   .0170002    -2.06   0.039     -.068362   -.0017226
+      r403c1 |   .1450331   .0491043     2.95   0.003     .0487905    .2412758
+      r403c2 |  -.0756046   .0533459    -1.42   0.156    -.1801607    .0289515
+       _cons |   5.017599    .865833     5.80   0.000     3.320597      6.7146
+------------------------------------------------------------------------------
+. if _rc==0 { estimates store m1_logit_any_count; local EST_PROB "`EST_PROB' m1_logit_any_count" }
+. 
+. cap noisily probit y_any `Xspbun_count' `Xpca' `Xctrl' `IFCOAST', vce(cluster kab)
+
+Iteration 0:   log pseudolikelihood = -2812.2278  
+Iteration 1:   log pseudolikelihood = -2692.8786  
+Iteration 2:   log pseudolikelihood = -2688.5986  
+Iteration 3:   log pseudolikelihood = -2688.5912  
+Iteration 4:   log pseudolikelihood = -2688.5912  
+
+Probit regression                                       Number of obs = 12,968
+                                                        Wald chi2(16) = 141.58
+                                                        Prob > chi2   = 0.0000
+Log pseudolikelihood = -2688.5912                       Pseudo R2     = 0.0440
+
+                                  (Std. err. adjusted for 327 clusters in kab)
+------------------------------------------------------------------------------
+             |               Robust
+       y_any | Coefficient  std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+      C10_w1 |  -.1006014   .0517752    -1.94   0.052     -.202079    .0008761
+    Wbasic_z |   .0218671   .0376472     0.58   0.561    -.0519201    .0956543
+      Util_z |   .0116103   .0273389     0.42   0.671    -.0419729    .0651935
+       Edu_z |    -.01069   .0418482    -0.26   0.798    -.0927109     .071331
+      Hlth_z |  -.0190139   .0200191    -0.95   0.342    -.0582506    .0202228
+       lnpov |   .0101499   .0193912     0.52   0.601    -.0278561    .0481559
+     r308b1d |   -.329096   .0699526    -4.70   0.000    -.4662006   -.1919914
+     r308b1e |  -.3571538   .0616652    -5.79   0.000    -.4780153   -.2362923
+       r309a |   .1524211    .109204     1.40   0.163    -.0616148    .3664569
+       r309b |   .1553159   .0500413     3.10   0.002     .0572369     .253395
+       r309d |   .0394204   .0453168     0.87   0.384     -.049399    .1282397
+       r309e |   .0389213   .0873068     0.45   0.656    -.1321968    .2100394
+        r310 |  -.1635731   .0691224    -2.37   0.018    -.2990506   -.0280957
+       r403a |  -.0182817   .0085943    -2.13   0.033    -.0351263   -.0014372
+      r403c1 |   .0660758   .0232039     2.85   0.004      .020597    .1115546
+      r403c2 |  -.0365055   .0250607    -1.46   0.145    -.0856236    .0126127
+       _cons |   2.591155   .3995553     6.49   0.000     1.808041    3.374269
+------------------------------------------------------------------------------
+. if _rc==0 { estimates store m1_probit_any_count; local EST_PROB "`EST_PROB' m1_probit_any_count" }
+. 
+. * (C) y_use: ONLY if y_use exists and has variation; do NOT include r308a on RHS
+. cap confirm numeric variable y_use
+. if _rc==0 {
+.     quietly tab y_use, missing
+.     cap noisily logit  y_use `Xspbun_dist' `Xpca' `Xctrl', vce(cluster kab)
+
+outcome = r308b1d > 0 predicts data perfectly
+.     if _rc==0 { estimates store m1_logit_use_dist; local EST_PROB "`EST_PROB' m1_logit_use_dist" }
+. 
+.     cap noisily logit  y_use `Xspbun_count' `Xpca' `Xctrl', vce(cluster kab)
+.     if _rc==0 { estimates store m1_logit_use_count; local EST_PROB "`EST_PROB' m1_logit_use_count" }
+. }
+. 
+. cap noi logit y_any `Xspbun_dist' `Xpca' `Xctrl' `IFCOAST', vce(cluster kab)
+
+Iteration 0:   log pseudolikelihood = -1059.9433  
+Iteration 1:   log pseudolikelihood = -1015.1443  
+Iteration 2:   log pseudolikelihood = -1010.8629  
+Iteration 3:   log pseudolikelihood =  -1010.852  
+Iteration 4:   log pseudolikelihood =  -1010.852  
+
+Logistic regression                                     Number of obs =  4,271
+                                                        Wald chi2(16) =  78.92
+                                                        Prob > chi2   = 0.0000
+Log pseudolikelihood = -1010.852                        Pseudo R2     = 0.0463
+
+                                  (Std. err. adjusted for 217 clusters in kab)
+------------------------------------------------------------------------------
+             |               Robust
+       y_any | Coefficient  std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+         D_v |  -.0019176     .01685    -0.11   0.909    -.0349429    .0311078
+    Wbasic_z |  -.1327768   .1497634    -0.89   0.375    -.4263078    .1607541
+      Util_z |  -.0541155   .0823647    -0.66   0.511    -.2155474    .1073164
+       Edu_z |   .1047971   .1108624     0.95   0.345    -.1124892    .3220834
+      Hlth_z |   .0724108   .0931264     0.78   0.437    -.1101135    .2549351
+       lnpov |   .1019531   .0527433     1.93   0.053    -.0014218    .2053281
+     r308b1d |  -.8135128   .2354915    -3.45   0.001    -1.275068   -.3519579
+     r308b1e |  -.4053102   .1775104    -2.28   0.022    -.7532241   -.0573963
+       r309a |  -.5740487   .5534425    -1.04   0.300    -1.658776    .5106787
+       r309b |  -.0084882    .210349    -0.04   0.968    -.4207647    .4037883
+       r309d |   .1362699   .2058415     0.66   0.508     -.267172    .5397119
+       r309e |  -.2898201   .4126658    -0.70   0.482     -1.09863    .5189901
+        r310 |  -.3186716   .2724015    -1.17   0.242    -.8525687    .2152256
+       r403a |  -.0189863   .0213198    -0.89   0.373    -.0607724    .0227998
+      r403c1 |   .2482667   .0870225     2.85   0.004     .0777057    .4188277
+      r403c2 |   .0000156   .1025099     0.00   1.000    -.2009001    .2009314
+       _cons |   6.557934   1.826842     3.59   0.000     2.977389    10.13848
+------------------------------------------------------------------------------
+. if _rc==0 estimates store m1_logit_any_dist
+. 
+. * --------------------
+. * 7) Model 2: Baseline environment-only (Env_z from PCA)
+. * --------------------
+. cap drop Env_pca1 Env_z
+. cap noisily pca r309a r309b r309d r309e r310, components(1) correlation
+
+Principal components/correlation                 Number of obs    =     84,276
+                                                 Number of comp.  =          1
+                                                 Trace            =          5
+    Rotation: (unrotated = principal)            Rho              =     0.7183
+
+    --------------------------------------------------------------------------
+       Component |   Eigenvalue   Difference         Proportion   Cumulative
+    -------------+------------------------------------------------------------
+           Comp1 |      3.59134      2.69061             0.7183       0.7183
+           Comp2 |      .900723      .595306             0.1801       0.8984
+           Comp3 |      .305416      .164584             0.0611       0.9595
+           Comp4 |      .140832     .0791391             0.0282       0.9877
+           Comp5 |     .0616929            .             0.0123       1.0000
+    --------------------------------------------------------------------------
+
+Principal components (eigenvectors) 
+
+    --------------------------------------
+        Variable |    Comp1 | Unexplained 
+    -------------+----------+-------------
+           r309a |  -0.5019 |       .0952 
+           r309b |   0.4758 |       .1868 
+           r309d |   0.4711 |       .2031 
+           r309e |   0.5122 |       .0578 
+            r310 |  -0.1934 |       .8657 
+    --------------------------------------
+. local rc_pca = _rc
+. if `rc_pca'==0 cap predict double Env_pca1 if e(sample), score
+. if `rc_pca'==0 egen double Env_z = std(Env_pca1)
+. 
+. cap confirm numeric variable Env_z
+. if _rc==0 {
+.     cap noisily logit y_any c.Env_z `Xpca' `Xctrl' `IFCOAST', vce(cluster kab)
+
+note: r310 omitted because of collinearity.
+Iteration 0:   log pseudolikelihood = -2812.2278  
+Iteration 1:   log pseudolikelihood = -2706.7275  
+Iteration 2:   log pseudolikelihood = -2696.4444  
+Iteration 3:   log pseudolikelihood = -2696.4238  
+Iteration 4:   log pseudolikelihood = -2696.4238  
+
+Logistic regression                                     Number of obs = 12,968
+                                                        Wald chi2(15) = 135.15
+                                                        Prob > chi2   = 0.0000
+Log pseudolikelihood = -2696.4238                       Pseudo R2     = 0.0412
+
+                                  (Std. err. adjusted for 327 clusters in kab)
+------------------------------------------------------------------------------
+             |               Robust
+       y_any | Coefficient  std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+       Env_z |    1.13624   .4455029     2.55   0.011       .26307    2.009409
+    Wbasic_z |   .0402886   .0790972     0.51   0.611    -.1147391    .1953163
+      Util_z |   .0104564   .0588906     0.18   0.859    -.1049671    .1258799
+       Edu_z |   .0119295    .083759     0.14   0.887     -.152235    .1760941
+      Hlth_z |  -.0329069   .0398262    -0.83   0.409    -.1109648    .0451509
+       lnpov |   .0216867   .0413916     0.52   0.600    -.0594394    .1028128
+     r308b1d |  -.6878981   .1591086    -4.32   0.000    -.9997453   -.3760509
+     r308b1e |  -.7614229   .1424376    -5.35   0.000    -1.040596   -.4822502
+       r309a |   .8714581   .3335746     2.61   0.009     .2176638    1.525252
+       r309b |   .0267171   .1666433     0.16   0.873    -.2998977    .3533319
+       r309d |  -.1986265   .1556484    -1.28   0.202    -.5036918    .1064388
+       r309e |  -.2795522   .2347808    -1.19   0.234     -.739714    .1806097
+        r310 |          0  (omitted)
+       r403a |  -.0374584   .0168433    -2.22   0.026    -.0704706   -.0044461
+      r403c1 |     .15337   .0496894     3.09   0.002     .0559806    .2507593
+      r403c2 |  -.0715647   .0540175    -1.32   0.185     -.177437    .0343076
+       _cons |   3.185411   .9052634     3.52   0.000     1.411128    4.959695
+------------------------------------------------------------------------------
+.     if _rc==0 { estimates store m2_logit_any_env; local EST_PROB "`EST_PROB' m2_logit_any_env" }
+. 
+.     cap noisily mlogit y_combo3 c.Env_z `Xpca' `Xctrl', baseoutcome(0) vce(cluster kab)
+
+note: r310 omitted because of collinearity.
+Iteration 0:   log pseudolikelihood = -42581.674  
+Iteration 1:   log pseudolikelihood = -15260.701  
+Iteration 2:   log pseudolikelihood = -13118.531  
+Iteration 3:   log pseudolikelihood = -11560.648  
+Iteration 4:   log pseudolikelihood =  -11529.69  
+Iteration 5:   log pseudolikelihood = -11529.343  
+Iteration 6:   log pseudolikelihood = -11529.343  
+
+Multinomial logistic regression                        Number of obs =  84,276
+                                                       Wald chi2(30) = 2883.81
+                                                       Prob > chi2   =  0.0000
+Log pseudolikelihood = -11529.343                      Pseudo R2     =  0.7292
+
+                                  (Std. err. adjusted for 514 clusters in kab)
+------------------------------------------------------------------------------
+             |               Robust
+    y_combo3 | Coefficient  std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+None         |  (base outcome)
+-------------+----------------------------------------------------------------
+Tangkap_only |
+       Env_z |    2.54422   .2911959     8.74   0.000     1.973487    3.114954
+    Wbasic_z |  -.1779271   .0822934    -2.16   0.031    -.3392191    -.016635
+      Util_z |   .0285476   .0456705     0.63   0.532    -.0609649    .1180601
+       Edu_z |   .0061007    .076571     0.08   0.936    -.1439757    .1561771
+      Hlth_z |   .0025034   .0420628     0.06   0.953    -.0799382    .0849449
+       lnpov |   .0925974   .0386224     2.40   0.017     .0168989    .1682958
+     r308b1d |     2.8885   .0864708    33.40   0.000      2.71902     3.05798
+     r308b1e |   2.314799   .0967842    23.92   0.000     2.125106    2.504493
+       r309a |   1.683324    .236782     7.11   0.000      1.21924    2.147408
+       r309b |  -.5550421   .1150673    -4.82   0.000    -.7805699   -.3295143
+       r309d |  -.6080468   .1118362    -5.44   0.000    -.8272417    -.388852
+       r309e |  -.3933289    .181097    -2.17   0.030    -.7482725   -.0383852
+        r310 |          0  (omitted)
+       r403a |   .0193015   .0191018     1.01   0.312    -.0181373    .0567403
+      r403c1 |   .1043519   .0473417     2.20   0.028     .0115638    .1971401
+      r403c2 |  -.0544501   .0493375    -1.10   0.270    -.1511498    .0422497
+       _cons |   -10.5033   .6170808   -17.02   0.000    -11.71276   -9.293845
+-------------+----------------------------------------------------------------
+Other_mixed  |
+       Env_z |    3.42012   .3149865    10.86   0.000     2.802758    4.037482
+    Wbasic_z |   .1653141   .0965177     1.71   0.087     -.023857    .3544853
+      Util_z |   .0435622   .0442219     0.99   0.325    -.0431111    .1302355
+       Edu_z |  -.2152774   .0845888    -2.54   0.011    -.3810684   -.0494864
+      Hlth_z |   .0241513   .0436697     0.55   0.580    -.0614397    .1097424
+       lnpov |   .1785095   .0439535     4.06   0.000     .0923621    .2646568
+     r308b1d |   2.719136   .0896894    30.32   0.000     2.543348    2.894924
+     r308b1e |   2.042007   .0973853    20.97   0.000     1.851135    2.232879
+       r309a |   2.171344   .2766999     7.85   0.000     1.629022    2.713666
+       r309b |  -.8222352   .1347779    -6.10   0.000    -1.086395   -.5580754
+       r309d |  -.6819372    .111571    -6.11   0.000    -.9006124   -.4632621
+       r309e |  -.9090015   .1576522    -5.77   0.000    -1.217994   -.6000089
+        r310 |          0  (omitted)
+       r403a |  -.0674065   .0214471    -3.14   0.002    -.1094421    -.025371
+      r403c1 |     .20803   .0475981     4.37   0.000     .1147394    .3013205
+      r403c2 |   -.261798   .0583269    -4.49   0.000    -.3761166   -.1474793
+       _cons |   -11.2863      .7457   -15.14   0.000    -12.74785   -9.824759
+------------------------------------------------------------------------------
+.     if _rc==0 { estimates store m2_mlogit3_env; local EST_PROB "`EST_PROB' m2_mlogit3_env" }
+. }
+. 
+. cap noi probit y_any `Xspbun_dist' `Xpca' `Xctrl' `IFCOAST', vce(cluster kab)
+
+Iteration 0:   log pseudolikelihood = -1059.9433  
+Iteration 1:   log pseudolikelihood = -1012.0067  
+Iteration 2:   log pseudolikelihood = -1010.4127  
+Iteration 3:   log pseudolikelihood = -1010.4097  
+Iteration 4:   log pseudolikelihood = -1010.4097  
+
+Probit regression                                       Number of obs =  4,271
+                                                        Wald chi2(16) =  83.05
+                                                        Prob > chi2   = 0.0000
+Log pseudolikelihood = -1010.4097                       Pseudo R2     = 0.0467
+
+                                  (Std. err. adjusted for 217 clusters in kab)
+------------------------------------------------------------------------------
+             |               Robust
+       y_any | Coefficient  std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+         D_v |   -.001273   .0080363    -0.16   0.874    -.0170239    .0144778
+    Wbasic_z |  -.0660325   .0698914    -0.94   0.345    -.2030172    .0709522
+      Util_z |  -.0225669   .0406339    -0.56   0.579    -.1022079     .057074
+       Edu_z |   .0545263   .0536587     1.02   0.310    -.0506429    .1596955
+      Hlth_z |   .0332288   .0432043     0.77   0.442    -.0514501    .1179077
+       lnpov |   .0502774   .0265188     1.90   0.058    -.0016985    .1022534
+     r308b1d |  -.3908382   .1053444    -3.71   0.000    -.5973095    -.184367
+     r308b1e |  -.2061033   .0805812    -2.56   0.011    -.3640396   -.0481669
+       r309a |  -.2717244    .247996    -1.10   0.273    -.7577876    .2143388
+       r309b |  -.0062677   .0979092    -0.06   0.949    -.1981662    .1856307
+       r309d |   .0694877   .0930548     0.75   0.455    -.1128965    .2518718
+       r309e |  -.1368908   .1851277    -0.74   0.460    -.4997345    .2259529
+        r310 |  -.1439748   .1242378    -1.16   0.247    -.3874764    .0995268
+       r403a |  -.0119308   .0113373    -1.05   0.293    -.0341515      .01029
+      r403c1 |   .1130211   .0396258     2.85   0.004     .0353558    .1906863
+      r403c2 |  -.0045347   .0461886    -0.10   0.922    -.0950628    .0859933
+       _cons |   3.381394   .8332588     4.06   0.000     1.748236    5.014551
+------------------------------------------------------------------------------
+. if _rc==0 estimates store m1_probit_any_dist
+. 
+. * --------------------
+. * 8) Model 3: Hurdle (treatment then outcome among treated)
+. * --------------------
+. cap confirm numeric variable T_spbun_inR
+. cap confirm numeric variable Env_z
+. if _rc==0 {
+.     cap noisily logit T_spbun_inR c.Env_z `Xpca' `Xctrl', vce(cluster kab)
+
+note: r310 omitted because of collinearity.
+Iteration 0:   log pseudolikelihood = -26808.415  
+Iteration 1:   log pseudolikelihood = -24493.197  
+Iteration 2:   log pseudolikelihood = -23676.676  
+Iteration 3:   log pseudolikelihood = -23662.849  
+Iteration 4:   log pseudolikelihood = -23662.795  
+Iteration 5:   log pseudolikelihood = -23662.795  
+
+Logistic regression                                     Number of obs = 84,276
+                                                        Wald chi2(15) = 481.72
+                                                        Prob > chi2   = 0.0000
+Log pseudolikelihood = -23662.795                       Pseudo R2     = 0.1173
+
+                                  (Std. err. adjusted for 514 clusters in kab)
+------------------------------------------------------------------------------
+             |               Robust
+ T_spbun_inR | Coefficient  std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+       Env_z |   -.653328   .2553347    -2.56   0.011    -1.153775   -.1528811
+    Wbasic_z |   .1897862   .0833374     2.28   0.023      .026448    .3531245
+      Util_z |  -.0583322   .0362194    -1.61   0.107    -.1293209    .0126565
+       Edu_z |  -.1095509   .0893745    -1.23   0.220    -.2847217    .0656198
+      Hlth_z |  -.0040993    .025224    -0.16   0.871    -.0535375    .0453388
+       lnpov |   .1394181   .0517982     2.69   0.007     .0378954    .2409408
+     r308b1d |   .2906168    .089011     3.26   0.001     .1161584    .4650751
+     r308b1e |   .5109538   .0773458     6.61   0.000     .3593589    .6625487
+       r309a |  -.0552332   .2209076    -0.25   0.803    -.4882041    .3777377
+       r309b |   .2358357   .1085402     2.17   0.030     .0231008    .4485707
+       r309d |   .2486285     .09544     2.61   0.009     .0615695    .4356875
+       r309e |   .0022367   .1267754     0.02   0.986    -.2462385    .2507119
+        r310 |          0  (omitted)
+       r403a |   .0557912   .0152536     3.66   0.000     .0258947    .0856877
+      r403c1 |   -.168922   .0477939    -3.53   0.000    -.2625963   -.0752476
+      r403c2 |  -.1882013   .0449303    -4.19   0.000    -.2762631   -.1001394
+       _cons |  -2.979244   .6016245    -4.95   0.000    -4.158406   -1.800082
+------------------------------------------------------------------------------
+.     if _rc==0 { estimates store m3_h1_treat; local EST_PROB "`EST_PROB' m3_h1_treat" }
+. 
+.     cap noisily logit y_any `Xspbun_dist' `Xpca' `Xctrl' if T_spbun_inR==1 `IFCOAST', vce(cluster kab)
+invalid syntax
+.     if _rc==0 { estimates store m3_h2_any_treated; local EST_PROB "`EST_PROB' m3_h2_any_treated" }
+. }
+. 
+. cap noi mlogit y_combo3 `Xspbun_dist' `Xpca' `Xctrl', baseoutcome(0) vce(cluster kab)
+
+Iteration 0:   log pseudolikelihood = -11989.288  
+Iteration 1:   log pseudolikelihood = -4866.1114  
+Iteration 2:   log pseudolikelihood = -4331.1633  
+Iteration 3:   log pseudolikelihood =  -4131.921  
+Iteration 4:   log pseudolikelihood = -4127.3635  
+Iteration 5:   log pseudolikelihood = -4127.3536  
+Iteration 6:   log pseudolikelihood = -4127.3536  
+
+Multinomial logistic regression                        Number of obs =  17,123
+                                                       Wald chi2(32) = 1321.90
+                                                       Prob > chi2   =  0.0000
+Log pseudolikelihood = -4127.3536                      Pseudo R2     =  0.6557
+
+                                  (Std. err. adjusted for 257 clusters in kab)
+------------------------------------------------------------------------------
+             |               Robust
+    y_combo3 | Coefficient  std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+None         |  (base outcome)
+-------------+----------------------------------------------------------------
+Tangkap_only |
+         D_v |  -.0510518   .0139148    -3.67   0.000    -.0783244   -.0237793
+    Wbasic_z |  -.4018562   .1394813    -2.88   0.004    -.6752346   -.1284778
+      Util_z |   .0477252   .0757062     0.63   0.528    -.1006563    .1961067
+       Edu_z |   .1475293     .10376     1.42   0.155    -.0558364    .3508951
+      Hlth_z |   .0928593   .0572407     1.62   0.105    -.0193303     .205049
+       lnpov |   .1441674   .0546271     2.64   0.008     .0371003    .2512345
+     r308b1d |   2.199362   .1175813    18.71   0.000     1.968907    2.429817
+     r308b1e |   2.344169   .1184651    19.79   0.000     2.111982    2.576357
+       r309a |   .1788784   .2227628     0.80   0.422    -.2577287    .6154855
+       r309b |     .02502   .1462691     0.17   0.864    -.2616622    .3117022
+       r309d |   .0736475   .1152134     0.64   0.523    -.1521666    .2994616
+       r309e |   .3012528   .2372307     1.27   0.204    -.1637108    .7662163
+        r310 |   -.927919   .1648541    -5.63   0.000    -1.251027   -.6048109
+       r403a |   .0333735   .0231036     1.44   0.149    -.0119087    .0786557
+      r403c1 |   .2236494   .0763351     2.93   0.003     .0740354    .3732635
+      r403c2 |   .0478178    .069768     0.69   0.493     -.088925    .1845606
+       _cons |  -4.759436   .7482422    -6.36   0.000    -6.225964   -3.292908
+-------------+----------------------------------------------------------------
+Other_mixed  |
+         D_v |   -.042672   .0133476    -3.20   0.001    -.0688328   -.0165113
+    Wbasic_z |   .1379183   .1515131     0.91   0.363    -.1590419    .4348786
+      Util_z |   .0453996    .074018     0.61   0.540    -.0996731    .1904722
+       Edu_z |   .0147982   .1085235     0.14   0.892     -.197904    .2275004
+      Hlth_z |   .0926601   .0548264     1.69   0.091    -.0147976    .2001178
+       lnpov |   .2073485   .0562313     3.69   0.000     .0971371    .3175599
+     r308b1d |   2.088958   .1234813    16.92   0.000     1.846939    2.330977
+     r308b1e |   2.100633   .1267121    16.58   0.000     1.852281    2.348984
+       r309a |  -.2102774   .2635176    -0.80   0.425    -.7267624    .3062076
+       r309b |   .0940234   .1758946     0.53   0.593    -.2507238    .4387706
+       r309d |   .0877026   .1271675     0.69   0.490    -.1615412    .3369464
+       r309e |  -.0925772   .2388634    -0.39   0.698    -.5607408    .3755864
+        r310 |  -1.121554   .1714361    -6.54   0.000    -1.457562   -.7855451
+       r403a |  -.0682127   .0270275    -2.52   0.012    -.1211857   -.0152398
+      r403c1 |   .3294193   .0702991     4.69   0.000     .1916357    .4672029
+      r403c2 |  -.1851336   .0884471    -2.09   0.036    -.3584868   -.0117804
+       _cons |  -2.935617   .8831837    -3.32   0.001    -4.666626   -1.204609
+------------------------------------------------------------------------------
+. if _rc==0 estimates store m1_mlogit3_dist
+. 
+. * --------------------
+. * 9) Nonparametric: Chi-square
+. * --------------------
+. cap noisily tab y_combo T_spbun_inR, chi2 row col
+
++-------------------+
+| Key               |
+|-------------------|
+|     frequency     |
+|  row percentage   |
+| column percentage |
++-------------------+
+
+                      |      T_spbun_inR
+              y_combo | No SPBUN   >=1 SPBUN |     Total
+----------------------+----------------------+----------
+                 None |    66,397      5,642 |    72,039 
+                      |     92.17       7.83 |    100.00 
+                      |     87.23      69.13 |     85.48 
+----------------------+----------------------+----------
+              Tangkap |     6,865      1,462 |     8,327 
+                      |     82.44      17.56 |    100.00 
+                      |      9.02      17.91 |      9.88 
+----------------------+----------------------+----------
+             Budidaya |        62         35 |        97 
+                      |     63.92      36.08 |    100.00 
+                      |      0.08       0.43 |      0.12 
+----------------------+----------------------+----------
+     Tangkap+Budidaya |     2,435        860 |     3,295 
+                      |     73.90      26.10 |    100.00 
+                      |      3.20      10.54 |      3.91 
+----------------------+----------------------+----------
+         Tambak garam |         5          3 |         8 
+                      |     62.50      37.50 |    100.00 
+                      |      0.01       0.04 |      0.01 
+----------------------+----------------------+----------
+        Tangkap+Garam |       110         36 |       146 
+                      |     75.34      24.66 |    100.00 
+                      |      0.14       0.44 |      0.17 
+----------------------+----------------------+----------
+       Budidaya+Garam |        12          3 |        15 
+                      |     80.00      20.00 |    100.00 
+                      |      0.02       0.04 |      0.02 
+----------------------+----------------------+----------
+Tangkap+Budidaya+Gara |       228        121 |       349 
+                      |     65.33      34.67 |    100.00 
+                      |      0.30       1.48 |      0.41 
+----------------------+----------------------+----------
+                Total |    76,114      8,162 |    84,276 
+                      |     90.32       9.68 |    100.00 
+                      |    100.00     100.00 |    100.00 
+
+          Pearson chi2(7) =  2.3e+03   Pr = 0.000
+. cap noisily tab y_any   T_spbun_inR, chi2 row col
+
++-------------------+
+| Key               |
+|-------------------|
+|     frequency     |
+|  row percentage   |
+| column percentage |
++-------------------+
+
+           |      T_spbun_inR
+     y_any | No SPBUN   >=1 SPBUN |     Total
+-----------+----------------------+----------
+Non-target |    66,397      5,642 |    72,039 
+           |     92.17       7.83 |    100.00 
+           |     87.23      69.13 |     85.48 
+-----------+----------------------+----------
+    Target |     9,717      2,520 |    12,237 
+           |     79.41      20.59 |    100.00 
+           |     12.77      30.87 |     14.52 
+-----------+----------------------+----------
+     Total |    76,114      8,162 |    84,276 
+           |     90.32       9.68 |    100.00 
+           |    100.00     100.00 |    100.00 
+
+          Pearson chi2(1) =  1.9e+03   Pr = 0.000
+. 
+. cap noi logit T_spbun_inR c.Env_z `Xpca' `Xctrl', vce(cluster kab)
+
+note: r310 omitted because of collinearity.
+Iteration 0:   log pseudolikelihood = -26808.415  
+Iteration 1:   log pseudolikelihood = -24493.197  
+Iteration 2:   log pseudolikelihood = -23676.676  
+Iteration 3:   log pseudolikelihood = -23662.849  
+Iteration 4:   log pseudolikelihood = -23662.795  
+Iteration 5:   log pseudolikelihood = -23662.795  
+
+Logistic regression                                     Number of obs = 84,276
+                                                        Wald chi2(15) = 481.72
+                                                        Prob > chi2   = 0.0000
+Log pseudolikelihood = -23662.795                       Pseudo R2     = 0.1173
+
+                                  (Std. err. adjusted for 514 clusters in kab)
+------------------------------------------------------------------------------
+             |               Robust
+ T_spbun_inR | Coefficient  std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+       Env_z |   -.653328   .2553347    -2.56   0.011    -1.153775   -.1528811
+    Wbasic_z |   .1897862   .0833374     2.28   0.023      .026448    .3531245
+      Util_z |  -.0583322   .0362194    -1.61   0.107    -.1293209    .0126565
+       Edu_z |  -.1095509   .0893745    -1.23   0.220    -.2847217    .0656198
+      Hlth_z |  -.0040993    .025224    -0.16   0.871    -.0535375    .0453388
+       lnpov |   .1394181   .0517982     2.69   0.007     .0378954    .2409408
+     r308b1d |   .2906168    .089011     3.26   0.001     .1161584    .4650751
+     r308b1e |   .5109538   .0773458     6.61   0.000     .3593589    .6625487
+       r309a |  -.0552332   .2209076    -0.25   0.803    -.4882041    .3777377
+       r309b |   .2358357   .1085402     2.17   0.030     .0231008    .4485707
+       r309d |   .2486285     .09544     2.61   0.009     .0615695    .4356875
+       r309e |   .0022367   .1267754     0.02   0.986    -.2462385    .2507119
+        r310 |          0  (omitted)
+       r403a |   .0557912   .0152536     3.66   0.000     .0258947    .0856877
+      r403c1 |   -.168922   .0477939    -3.53   0.000    -.2625963   -.0752476
+      r403c2 |  -.1882013   .0449303    -4.19   0.000    -.2762631   -.1001394
+       _cons |  -2.979244   .6016245    -4.95   0.000    -4.158406   -1.800082
+------------------------------------------------------------------------------
+. if _rc==0 estimates store m3_h1_treat
+. 
+. 
+. /****************************************************************************************
+> OUTPUT TABLES 
+> ****************************************************************************************/
+. 
+. * Ensure outdir exists
+. cap confirm global outdir
+. if _rc | "$outdir"=="" global outdir "output"
+. cap mkdir "$outdir"
+. di as txt "Writing output to: $outdir"
+Writing output to: output
+. 
+. * sanity check
+. di as txt "Stored estimates:"
+Stored estimates:
+. estimates dir
+
+------------------------------------------------------------------------------
+             |           Dependent  Number of        
+        Name | Command    variable     param.  Title 
+-------------+----------------------------------------------------------------
+m1_logit_a~t | logit         y_any         17  Logistic regression
+m1_probit_~t | probit        y_any         17  Probit regression
+m1_mlogit3~t | mlogit     y_combo3         51  Multinomial logistic regression
+ m3_h1_treat | logit     T_spbun_inR       17  Logistic regression
+------------------------------------------------------------------------------
+. 
+. * radius used in model naming
+. local R 10
+. 
+. * KEEP/ORDER: works for logit and for mlogit (eq-prefixed like 1:D_v)
+. local keep_prob  "D_v C`R'_w1 Env_z T_spbun_inR *:D_v *:C`R'_w1 *:Env_z *:T_spbun_inR"
+. local order_prob "D_v C`R'_w1 Env_z T_spbun_inR *:D_v *:C`R'_w1 *:Env_z *:T_spbun_inR"
+. 
+. * Build lists from the models you stored
+. local LIST_any   "m1_logit_any_dist m1_probit_any_dist m1_logit_any_count m1_probit_any_count m2_logit_any_env m3_h2_any_treated"
+. local LIST_combo "m1_mlogit3_dist m1_mlogit3_count m2_mlogit3_env"
+. local LIST_treat "m3_h1_treat"
+. 
+. * Keep only those that actually exist
+. local KEEP_any ""
+. foreach m of local LIST_any {
+  2.     cap estimates describe `m'
+  3.     if _rc==0 local KEEP_any "`KEEP_any' `m'"
+  4. }
+. local KEEP_combo ""
+. foreach m of local LIST_combo {
+  2.     cap estimates describe `m'
+  3.     if _rc==0 local KEEP_combo "`KEEP_combo' `m'"
+  4. }
+. local KEEP_treat ""
+. foreach m of local LIST_treat {
+  2.     cap estimates describe `m'
+  3.     if _rc==0 local KEEP_treat "`KEEP_treat' `m'"
+  4. }
+. 
+. di as txt "KEEP_any   = `KEEP_any'"
+KEEP_any   =  m1_logit_any_dist m1_probit_any_dist
+. di as txt "KEEP_combo = `KEEP_combo'"
+KEEP_combo =  m1_mlogit3_dist
+. di as txt "KEEP_treat = `KEEP_treat'"
+KEEP_treat =  m3_h1_treat
+. 
+. cap which esttab
+. if _rc ssc install estout, replace
+. 
+. * word counts so we can "if" without braces
+. local n_any   : word count `KEEP_any'
+. local n_combo : word count `KEEP_combo'
+. local n_treat : word count `KEEP_treat'
+. 
+. * 1) Binary models
+. if `n_any' > 0 cap noi esttab `KEEP_any' using "$outdir/results_prob_any_R`R'.rtf", replace ///
+>     keep(`keep_prob') order(`order_prob') ///
+>     b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) ///
+>     stats(N ll r2_p, labels("N" "LogLik" "Pseudo R2")) ///
+>     compress nogaps varwidth(24) modelwidth(12)
+coefficient *:D_v not found
+. 
+. * 2) Multinomial models
+. if `n_combo' > 0 cap noi esttab `KEEP_combo' using "$outdir/results_prob_combo_R`R'.rtf", replace ///
+>     keep(`keep_prob') order(`order_prob') ///
+>     b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) ///
+>     stats(N ll r2_p, labels("N" "LogLik" "Pseudo R2")) ///
+>     compress nogaps varwidth(24) modelwidth(12)
+coefficient *:D_v not found
+. 
+. * 3) Treatment model
+. if `n_treat' > 0 cap noi esttab `KEEP_treat' using "$outdir/results_prob_treat_R`R'.rtf", replace ///
+>     keep(`keep_prob') order(`order_prob') ///
+>     b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) ///
+>     stats(N ll r2_p, labels("N" "LogLik" "Pseudo R2")) ///
+>     compress nogaps varwidth(24) modelwidth(12)
+coefficient *:Env_z not found
+. program error:  matching close brace not found
+r(198);
+. r(198);
+. r(198);
+. r(198);
+. r(198);
+. r(198);
+. r(198);
+. r(198);
+. r(198);
+. r(198);
+. r(198);
+
+end of do-file
+
+r(198);
+. do "/Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/SPBUN-Analysis2.do"
+
+. /****************************************************************************************
+> SPBUN (SPBU Nelayan) exposure → welfare outcomes (PODES village + SUSENAS household)
+> Baseline: SPBUN only (extend later for SPBU / SPBUN+SPBU)
+> 
+> Disusun oleh: Atha (PSE)
+> Tujuan: Analisis #2 
+> ****************************************************************************************/
+. 
+. version 17
+
+. clear all
+
+. set more off
+
+. set linesize 255
+
+. set maxvar 32767
+
+
+. 
+. /****************************************************************************************
+> A. PATHS
+> ****************************************************************************************/
+. global spbun_csv "/Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Realisasi SPBUN 2024-2025(2024).csv"
+
+. global kel_latlon "/Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/kelurahan_lat_long.csv"
+
+. 
+. global podes_main    "/Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Podes/podes2024_desa_02..dta"
+
+. global podes_pesisir "/Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Podes/Podes kab kota pesisir laut.dta"
+
+. 
+. global outdir "/Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output"
+
+. cap mkdir "$outdir"
+
+. 
+. cap log close

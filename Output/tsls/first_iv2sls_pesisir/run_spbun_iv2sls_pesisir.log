@@ -1,0 +1,2593 @@
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/iv2sls_pesisir/run_spbun_iv2sls_pesisir.log
+  log type:  text
+ opened on:   2 Feb 2026, 13:41:42
+
+. 
+. /****************************************************************************************
+> B. PACKAGES
+> ****************************************************************************************/
+. cap which geodist
+
+. if _rc ssc install geodist, replace
+
+. 
+. /****************************************************************************************
+> C. HELPERS
+> ****************************************************************************************/
+. 
+. capture program drop _std_iddesa10
+
+. program define _std_iddesa10
+  1.     syntax varname
+  2.     capture confirm numeric variable `varlist'
+  3.     if !_rc tostring `varlist', replace format("%010.0f")
+  4.     replace `varlist' = trim(`varlist')
+  5.     replace `varlist' = subinstr(`varlist'," ","",.)
+  6.     replace `varlist' = subinstr(`varlist',".","",.)
+  7.     replace `varlist' = subinstr(`varlist',",","",.)
+  8.     replace `varlist' = substr("0000000000"+`varlist', strlen("0000000000"+`varlist')-9, 10)
+  9.     assert strlen(`varlist')==10
+ 10. end
+
+. 
+. capture program drop _std_spbun_no
+
+. program define _std_spbun_no
+  1.     syntax varname
+  2.     capture confirm numeric variable `varlist'
+  3.     if !_rc tostring `varlist', replace format("%18.0f")
+  4.     replace `varlist' = trim(`varlist')
+  5.     replace `varlist' = subinstr(`varlist'," ","",.)
+  6.     replace `varlist' = subinstr(`varlist',".","",.)
+  7.     replace `varlist' = subinstr(`varlist',",","",.)
+  8.     replace `varlist' = subinstr(`varlist',"#","",.)
+  9.     replace `varlist' = ustrregexra(`varlist', "[^0-9A-Za-z]", "")
+ 10. end
+
+. 
+. * Convert 1/2 yes-no variables to 1/0
+. capture program drop _yn12_to01
+
+. program define _yn12_to01
+  1.     syntax varlist
+  2.     foreach v of varlist `varlist' {
+  3.         cap confirm numeric variable `v'
+  4.         if _rc continue
+  5.         quietly summarize `v' if !missing(`v'), meanonly
+  6.         if (r(min)>=1 & r(max)<=2) {
+  7.             replace `v' = (`v'==1) if inlist(`v',1,2)
+  8.         }
+  9.     }
+ 10. end
+
+. 
+. * Fix lat/lon stored in scaled integers / sentinel values
+. capture program drop _fix_latlon_scale
+
+. program define _fix_latlon_scale
+  1.     version 15
+  2.     syntax varlist(min=2 max=2 numeric)
+  3.     local lat : word 1 of `varlist'
+  4.     local lon : word 2 of `varlist'
+  5. 
+.     * drop obvious sentinels / garbage
+.     replace `lat' = . if !missing(`lat') & abs(`lat') > 1e12
+  6.     replace `lon' = . if !missing(`lon') & abs(`lon') > 1e12
+  7. 
+.     * rescale microdegrees (degrees * 1e7)
+.     replace `lat' = `lat'/1e7 if !missing(`lat') & abs(`lat') > 90  & abs(`lat') <= 9e8
+  8.     replace `lon' = `lon'/1e7 if !missing(`lon') & abs(`lon') > 180 & abs(`lon') <= 18e8
+  9. 
+.     * swap if reversed
+.     gen byte __swap = (abs(`lat')>90 & abs(`lon')<=90) if !missing(`lat') & !missing(`lon')
+ 10.     tempvar __tmp
+ 11.     gen double `__tmp' = `lat'
+ 12.     replace `lat' = `lon'   if __swap==1
+ 13.     replace `lon' = `__tmp' if __swap==1
+ 14.     drop __swap `__tmp'
+ 15. 
+.     * drop invalid coords
+.     drop if missing(`lat') | missing(`lon')
+ 16.     drop if abs(`lat')>90 | abs(`lon')>180
+ 17. end
+
+. 
+. * Bin a numeric variable into 0 + quantiles among non-zero (ordinal 0..4)
+. capture program drop _bin0q4
+
+. program define _bin0q4
+  1.     syntax varname(numeric), gen(name)
+  2.     tempvar q
+  3.     cap drop `gen'
+  4.     gen byte `gen' = .
+  5.     replace `gen' = 0 if `varlist'==0 & !missing(`varlist')
+  6. 
+.     quietly count if `varlist'>0 & !missing(`varlist')
+  7.     if (r(N)>=30) {
+  8.         xtile `q' = `varlist' if `varlist'>0 & !missing(`varlist'), nq(4)
+  9.         replace `gen' = `q' if `varlist'>0 & !missing(`varlist')
+ 10.         label define `gen'_lbl 0 "0" 1 "Q1" 2 "Q2" 3 "Q3" 4 "Q4", replace
+ 11.     }
+ 12.     else if (r(N)>0) {
+ 13.         xtile `q' = `varlist' if `varlist'>0 & !missing(`varlist'), nq(2)
+ 14.         replace `gen' = cond(`q'==1,1,4) if `varlist'>0 & !missing(`varlist')
+ 15.         label define `gen'_lbl 0 "0" 1 "Low" 4 "High", replace
+ 16.     }
+ 17.     else {
+ 18.         label define `gen'_lbl 0 "0", replace
+ 19.     }
+ 20. 
+.     label values `gen' `gen'_lbl
+ 21. end
+
+. 
+. * Helper: 2-pass min-distance (bin-join) to avoid missingness (robust to empty joins)
+. capture program drop _mindist_2pass
+
+. program define _mindist_2pass
+  1.     syntax, IDVAR(name) LATVAR(name) LONVAR(name) USING(string) ///
+>         OUTVAR(name) [BINSZ1(real 1) RING1(integer 6) BINSZ2(real 2) RING2(integer 7)]
+  2. 
+.     tempfile V P1 P2 D1 D2 MISS
+  3. 
+.     * Village base (coords only)
+.     preserve
+  4.         keep `idvar' `latvar' `lonvar'
+  5.         drop if missing(`latvar') | missing(`lonvar')
+  6.         save `V', replace
+  7.     restore
+  8. 
+.     * ---------------- PASS 1 ----------------
+.     preserve
+  9.         use "`using'", clear
+ 10.         keep pid lat_p lon_p
+ 11.         drop if missing(lat_p) | missing(lon_p)
+ 12.         gen int latbin = floor(lat_p/`binsz1')
+ 13.         gen int lonbin = floor(lon_p/`binsz1')
+ 14.         local K1 = (2*`ring1'+1)
+ 15.         local E1 = `K1'*`K1'
+ 16.         expand `E1'
+ 17.         bys pid: gen int __g = _n-1
+ 18.         gen int dlat = floor(__g/`K1') - `ring1'
+ 19.         gen int dlon = mod(__g,`K1') - `ring1'
+ 20.         gen int latbin2 = latbin + dlat
+ 21.         gen int lonbin2 = lonbin + dlon
+ 22.         drop __g dlat dlon latbin lonbin
+ 23.         rename latbin2 latbin
+ 24.         rename lonbin2 lonbin
+ 25.         save `P1', replace
+ 26.     restore
+ 27. 
+.     preserve
+ 28.         use `V', clear
+ 29.         gen int latbin = floor(`latvar'/`binsz1')
+ 30.         gen int lonbin = floor(`lonvar'/`binsz1')
+ 31.         joinby latbin lonbin using `P1'
+ 32.         quietly count
+ 33.         if r(N)>0 {
+ 34.             geodist `latvar' `lonvar' lat_p lon_p, gen(__dkm)
+ 35.             bys `idvar': egen double `outvar' = min(__dkm)
+ 36.             keep `idvar' `outvar'
+ 37.             duplicates drop `idvar', force
+ 38.             save `D1', replace
+ 39.         }
+ 40.         else {
+ 41.             use `V', clear
+ 42.             keep `idvar'
+ 43.             gen double `outvar' = .
+ 44.             duplicates drop `idvar', force
+ 45.             save `D1', replace
+ 46.         }
+ 47.     restore
+ 48. 
+.     merge 1:1 `idvar' using `D1', nogen
+ 49. 
+.     * ---------------- PASS 2 ----------------
+.     quietly count if missing(`outvar') & !missing(`latvar') & !missing(`lonvar')
+ 50.     if r(N) > 0 {
+ 51. 
+.         preserve
+ 52.             keep if missing(`outvar') & !missing(`latvar') & !missing(`lonvar')
+ 53.             keep `idvar' `latvar' `lonvar'
+ 54.             save `MISS', replace
+ 55.         restore
+ 56. 
+.         preserve
+ 57.             use "`using'", clear
+ 58.             keep pid lat_p lon_p
+ 59.             drop if missing(lat_p) | missing(lon_p)
+ 60.             gen int latbin = floor(lat_p/`binsz2')
+ 61.             gen int lonbin = floor(lon_p/`binsz2')
+ 62.             local K2 = (2*`ring2'+1)
+ 63.             local E2 = `K2'*`K2'
+ 64.             expand `E2'
+ 65.             bys pid: gen int __g = _n-1
+ 66.             gen int dlat = floor(__g/`K2') - `ring2'
+ 67.             gen int dlon = mod(__g,`K2') - `ring2'
+ 68.             gen int latbin2 = latbin + dlat
+ 69.             gen int lonbin2 = lonbin + dlon
+ 70.             drop __g dlat dlon latbin lonbin
+ 71.             rename latbin2 latbin
+ 72.             rename lonbin2 lonbin
+ 73.             save `P2', replace
+ 74.         restore
+ 75. 
+.         preserve
+ 76.             use `MISS', clear
+ 77.             gen int latbin = floor(`latvar'/`binsz2')
+ 78.             gen int lonbin = floor(`lonvar'/`binsz2')
+ 79.             joinby latbin lonbin using `P2'
+ 80.             quietly count
+ 81.             if r(N)>0 {
+ 82.                 geodist `latvar' `lonvar' lat_p lon_p, gen(__dkm)
+ 83.                 bys `idvar': egen double __d2 = min(__dkm)
+ 84.                 keep `idvar' __d2
+ 85.                 duplicates drop `idvar', force
+ 86.                 save `D2', replace
+ 87.             }
+ 88.             else {
+ 89.                 use `MISS', clear
+ 90.                 keep `idvar'
+ 91.                 gen double __d2 = .
+ 92.                 duplicates drop `idvar', force
+ 93.                 save `D2', replace
+ 94.             }
+ 95.         restore
+ 96. 
+.         merge 1:1 `idvar' using `D2', nogen
+ 97.         replace `outvar' = __d2 if missing(`outvar') & !missing(__d2)
+ 98.         drop __d2
+ 99.     }
+100. end
+
+. 
+. 
+. /****************************************************************************************
+> D. BUILD "$outdir/podes_vill.dta"  (MAIN + PESISIR + coords fallback)
+> ****************************************************************************************/
+. tempfile MAIN PES kelcoords
+
+. 
+. * D1) MAIN
+. use "$podes_main", clear
+
+. 
+. cap confirm variable IDDESA
+
+. if _rc {
+.     cap confirm variable iddesa
+.     if !_rc rename iddesa IDDESA
+.     cap confirm variable IdDesa
+.     if !_rc rename IdDesa IDDESA
+.     cap confirm variable Iddesa
+.     if !_rc rename Iddesa IDDESA
+. }
+
+. cap confirm variable IDDESA
+
+. if _rc {
+.     di as err "MAIN: cannot find village id variable (IDDESA/iddesa)."
+.     describe, short
+.     exit 111
+. }
+
+. 
+. cap confirm numeric variable IDDESA
+
+. if !_rc tostring IDDESA, replace format("%010.0f")
+
+. 
+. replace IDDESA = trim(IDDESA)
+(0 real changes made)
+
+. replace IDDESA = subinstr(IDDESA," ","",.)
+(0 real changes made)
+
+. replace IDDESA = subinstr(IDDESA,".","",.)
+(0 real changes made)
+
+. replace IDDESA = subinstr(IDDESA,",","",.)
+(0 real changes made)
+
+. replace IDDESA = substr("0000000000"+IDDESA, strlen("0000000000"+IDDESA)-9, 10)
+(0 real changes made)
+
+. assert strlen(IDDESA)==10
+
+. 
+. rename *, lower
+
+. rename iddesa iddesa
+  (all newnames==oldnames)
+
+. _std_iddesa10 iddesa
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+
+. 
+. duplicates drop iddesa, force
+
+Duplicates in terms of iddesa
+
+(0 observations are duplicates)
+
+. save `MAIN', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.000001 not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.000001 saved as .dta format
+
+. 
+. * D2) PESISIR (prefix p_)
+. use "$podes_pesisir", clear
+
+. rename *, lower
+
+. 
+. cap confirm variable iddesa
+
+. if _rc {
+.     di as err "PESISIR: iddesa not found."
+.     describe, short
+.     exit 111
+. }
+
+. _std_iddesa10 iddesa
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+
+. 
+. keep iddesa r307b_lat r307b_long ///
+>      r308* r309* r310 ///
+>      r402* r403* ///
+>      r501* r502* r503* ///
+>      r507* r508* r509* ///
+>      r510* r511* r514* r515*
+
+. 
+. duplicates drop iddesa, force
+
+Duplicates in terms of iddesa
+
+(0 observations are duplicates)
+
+. ds iddesa, not
+r307b_lat   r308b1d     r309c       r402b2      r402e2a     r403c2      r502b       r503a5      r503a11     r509a       r510ak3     r510b1k5    r510b3k3    r510b4k5    r510b6k3    r510b8k2    r510b9k5    r511b2      r511c3      r514b_k4    r515c
+r307b_long  r308b1e     r309d       r402c       r402e2b     r501a1      r502c       r503a6      r503b       r509b       r510ak4     r510b2k2    r510b3k4    r510b5k2    r510b6k4    r510b8k3    r510b10k2   r511b3      r514a_k2    r514c_k2
+r308a       r308b2      r309e       r402d1      r403a       r501a2      r503a1      r503a7      r503c       r509c1      r510ak5     r510b2k3    r510b3k5    r510b5k3    r510b6k5    r510b8k4    r510b10k4   r511c1      r514a_k3    r514c_k3
+r308b1a     r308b3      r310        r402d2a     r403b1      r501b       r503a2      r503a8      r507        r509c2      r510b1k2    r510b2k4    r510b4k2    r510b5k4    r510b7k2    r510b8k5    r510b10k5   r511c2a     r514a_k4    r514c_k4
+r308b1b     r309a       r402a       r402d2b     r403b2      r501c       r503a3      r503a9      r508a       r509c3      r510b1k3    r510b2k5    r510b4k3    r510b5k5    r510b7k3    r510b9k2    r511a       r511c2b     r514b_k2    r515a
+r308b1c     r309b       r402b1      r402e1      r403c1      r502a       r503a4      r503a10     r508b       r510ak2     r510b1k4    r510b3k2    r510b4k4    r510b6k2    r510b7k4    r510b9k4    r511b1      r511c2c     r514b_k3    r515b
+
+. local pesvars `r(varlist)'
+
+. foreach v of local pesvars {
+  2.     rename `v' p_`v'
+  3. }
+
+. save `PES', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.000002 not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.000002 saved as .dta format
+
+. 
+. * D3) MERGE MAIN + PESISIR; fill missing from p_*
+. use `MAIN', clear
+
+. merge 1:1 iddesa using `PES', nogen keep(master match)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                            84,276  
+    -----------------------------------------
+
+. 
+. capture ds p_*
+
+. if !_rc {
+.     local plist `r(varlist)'
+.     foreach pv of local plist {
+  2.         local tv = substr("`pv'",3,.)
+  3.         capture confirm variable `tv'
+  4.         if _rc {
+  5.             rename `pv' `tv'
+  6.         }
+  7.         else {
+  8.             capture confirm numeric variable `tv'
+  9.             if !_rc {
+ 10.                 replace `tv' = `pv' if missing(`tv') & !missing(`pv')
+ 11.             }
+ 12.             else {
+ 13.                 capture confirm string variable `tv'
+ 14.                 if !_rc {
+ 15.                     replace `tv' = `pv' if (`tv'=="") & (`pv'!="")
+ 16.                 }
+ 17.             }
+ 18.             drop `pv'
+ 19.         }
+ 20.     }
+. }
+
+. 
+. * admin codes from iddesa
+. capture drop r101 r102 r103 r104
+
+. gen int r101 = real(substr(iddesa,1,2))
+
+. gen int r102 = real(substr(iddesa,3,2))
+
+. gen int r103 = real(substr(iddesa,5,3))
+
+. gen int r104 = real(substr(iddesa,8,3))
+
+. 
+. capture drop kab
+
+. egen long kab = group(r101 r102), label
+
+. 
+. * coords prefer r307b_lat/long
+. cap confirm variable lat_v
+
+. if _rc gen double lat_v = .
+(84,276 missing values generated)
+
+. cap confirm variable lon_v
+
+. if _rc gen double lon_v = .
+(84,276 missing values generated)
+
+. 
+. cap confirm variable r307b_lat
+
+. if !_rc {
+.     cap confirm numeric variable r307b_lat
+.     if _rc destring r307b_lat, replace ignore(",")
+.     replace lat_v = r307b_lat if missing(lat_v) & !missing(r307b_lat)
+(84,276 real changes made)
+. }
+
+. cap confirm variable r307b_long
+
+. if !_rc {
+.     cap confirm numeric variable r307b_long
+.     if _rc destring r307b_long, replace ignore(",")
+.     replace lon_v = r307b_long if missing(lon_v) & !missing(r307b_long)
+(84,276 real changes made)
+. }
+
+. capture drop r307b_lat r307b_long
+
+. 
+. * fallback coords from kel_latlon if still missing
+. count if missing(lat_v) | missing(lon_v)
+  0
+
+. if r(N) > 0 {
+.     di as txt "Coords missing for " r(N) " villages -> fallback merge from kel_latlon..."
+.     preserve
+.         import delimited "$kel_latlon", clear varnames(1) case(preserve) stringcols(_all)
+. 
+.         local idv ""
+.         local latc ""
+.         local lonc ""
+.         foreach v of varlist _all {
+  2.             if "`idv'"==""  & strpos(lower("`v'"),"iddesa") local idv `v'
+  3.             if "`latc'"=="" & strpos(lower("`v'"),"lat")    local latc `v'
+  4.             if "`lonc'"=="" & (strpos(lower("`v'"),"lon") | strpos(lower("`v'"),"long")) local lonc `v'
+  5.         }
+. 
+.         if "`idv'"!="" & "`latc'"!="" & "`lonc'"!="" {
+.             rename `idv' iddesa
+.             rename `latc' lat_v2
+.             rename `lonc' lon_v2
+.             _std_iddesa10 iddesa
+.             destring lat_v2 lon_v2, replace ignore(",")
+.             keep iddesa lat_v2 lon_v2
+.             duplicates drop iddesa, force
+.             save `kelcoords', replace
+.         }
+.     restore
+. 
+.     capture confirm file "`kelcoords'"
+.     if !_rc {
+.         merge 1:1 iddesa using `kelcoords', nogen keep(master match)
+.         replace lat_v = lat_v2 if missing(lat_v) & !missing(lat_v2)
+.         replace lon_v = lon_v2 if missing(lon_v) & !missing(lon_v2)
+.         drop lat_v2 lon_v2
+.     }
+. }
+
+. 
+. save "$outdir/podes_vill.dta", replace
+file /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/iv2sls_pesisir/podes_vill.dta saved
+
+. di as result "Saved: $outdir/podes_vill.dta"
+Saved: /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/iv2sls_pesisir/podes_vill.dta
+
+. 
+. /****************************************************************************************
+> E. BUILD SPBUN SITE DATASET (coords + weights + stable SPBUN number if present)
+> ****************************************************************************************/
+. tempfile spbun_site
+
+. import delimited "$spbun_csv", clear varnames(1) case(preserve) stringcols(_all)
+(encoding automatically selected: UTF-8)
+(113 vars, 377 obs)
+
+. 
+. * stable SPBUN identifier
+. local spbunno ""
+
+. foreach v of varlist _all {
+  2.     if "`spbunno'"=="" & (strpos(lower("`v'"),"nomor") & strpos(lower("`v'"),"spbun")) local spbunno `v'
+  3.     if "`spbunno'"=="" & (strpos(lower("`v'"),"no")    & strpos(lower("`v'"),"spbun")) local spbunno `v'
+  4.     if "`spbunno'"=="" & (strpos(lower("`v'"),"kode")  & strpos(lower("`v'"),"spbun")) local spbunno `v'
+  5. }
+
+. if "`spbunno'"!="" {
+.     rename `spbunno' spbun_no
+.     _std_spbun_no spbun_no
+. }
+
+. else {
+.     gen str20 spbun_no = ""
+(377 missing values generated)
+. }
+
+. 
+. * coordinates
+. capture confirm variable TitikKoordinat
+
+. if _rc {
+.     di as err "Cannot find TitikKoordinat in SPBUN CSV."
+.     describe
+.     exit 198
+. }
+
+. rename TitikKoordinat titik_koordinat
+
+. 
+. replace titik_koordinat = subinstr(titik_koordinat, char(34), "", .)
+(0 real changes made)
+
+. replace titik_koordinat = subinstr(titik_koordinat, char(39), "", .)
+(83 real changes made)
+
+. replace titik_koordinat = subinstr(titik_koordinat, " ", "", .)
+(1 real change made)
+
+. replace titik_koordinat = "" if inlist(upper(trim(titik_koordinat)), "#N/A", "N/A", "NA", ".")
+(8 real changes made)
+
+. 
+. gen strL coord = titik_koordinat
+(8 missing values generated)
+
+. split coord, parse(",") gen(_c)
+variables created as string: 
+_c1  _c2
+
+. 
+. foreach v of varlist _c* {
+  2.     replace `v' = trim(`v')
+  3.     replace `v' = subinstr(`v', char(160),"", .)
+  4.     replace `v' = subinstr(`v', "–", "-", .)
+  5.     replace `v' = subinstr(`v', "−", "-", .)
+  6.     replace `v' = ustrregexra(`v', "[^0-9.-]", "")
+  7. }
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+
+. 
+. gen double lat_s = real(_c1)
+(8 missing values generated)
+
+. gen double lon_s = real(_c2)
+(10 missing values generated)
+
+. drop _c* coord
+
+. 
+. * swap if reversed
+. gen byte _swap = (abs(lat_s)>90 & abs(lon_s)<=90)
+
+. gen double _tmp = lat_s
+(8 missing values generated)
+
+. replace lat_s = lon_s if _swap
+(0 real changes made)
+
+. replace lon_s = _tmp  if _swap
+(0 real changes made)
+
+. drop _swap _tmp
+
+. 
+. drop if missing(lat_s) | missing(lon_s)
+(10 observations deleted)
+
+. 
+. * quota vars (auto-detect)
+. local qjbt ""
+
+. local qjbkp ""
+
+. foreach v of varlist _all {
+  2.     if "`qjbt'"==""  & strpos(lower("`v'"),"kuota") & strpos(lower("`v'"),"jbt")  local qjbt  `v'
+  3.     if "`qjbkp'"=="" & strpos(lower("`v'"),"kuota") & strpos(lower("`v'"),"jbkp") local qjbkp `v'
+  4. }
+
+. if "`qjbt'"!=""  rename `qjbt'  kuota_jbt
+
+. if "`qjbkp'"!="" rename `qjbkp' kuota_jbkp
+
+. capture destring kuota_jbt kuota_jbkp, replace ignore(",")
+
+. 
+. * volume proxy: destring likely volume cols, then rowtotal
+. capture ds Total* *total* *realisasi* *volume*, has(type string)
+
+. if !_rc {
+.     foreach v of varlist `r(varlist)' {
+  2.         capture destring `v', replace ignore(",")
+  3.     }
+. }
+
+. local volvars ""
+
+. capture ds Total* *total* *realisasi* *volume*, has(type numeric)
+
+. if !_rc local volvars "`r(varlist)'"
+
+. 
+. capture drop vol_s
+
+. if "`volvars'"!="" {
+.     egen double vol_s = rowtotal(`volvars'), missing
+. }
+
+. else {
+.     gen double vol_s = .
+(367 missing values generated)
+. }
+
+. 
+. gen double quota_s = .
+(367 missing values generated)
+
+. capture confirm variable kuota_jbt
+
+. if !_rc replace quota_s = kuota_jbt
+
+. capture confirm variable kuota_jbkp
+
+. if !_rc replace quota_s = cond(missing(quota_s), kuota_jbkp, quota_s + kuota_jbkp)
+
+. 
+. gen double rr_s = .
+(367 missing values generated)
+
+. replace rr_s = vol_s / quota_s if quota_s>0 & !missing(vol_s)
+(0 real changes made)
+
+. 
+. gen double w1   = 1
+
+. gen double wvol = vol_s
+(367 missing values generated)
+
+. gen double wrr  = rr_s
+(367 missing values generated)
+
+. 
+. gen long site_id = _n
+
+. keep site_id spbun_no lat_s lon_s vol_s quota_s rr_s w1 wvol wrr
+
+. save `spbun_site', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.000004 not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.000004 saved as .dta format
+
+. save "$outdir/spbun_site_raw.dta", replace
+file /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/iv2sls_pesisir/spbun_site_raw.dta saved
+
+. 
+. 
+. /****************************************************************************************
+> F. ASSIGN EACH SPBUN SITE TO NEAREST VILLAGE (get r101/r102, kab)
+> ****************************************************************************************/
+. tempfile spbun_site_coded villcoords site_bins site2kab
+
+. local binsz = 0.10
+
+. 
+. use `spbun_site', clear
+
+. 
+. preserve
+
+.     use "$outdir/podes_vill.dta", clear
+
+.     keep iddesa kab r101 r102 lat_v lon_v
+
+.     drop if missing(lat_v) | missing(lon_v)
+(0 observations deleted)
+
+.     save `villcoords', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.000006 not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.000006 saved as .dta format
+
+. restore
+
+. 
+. drop if missing(lat_s) | missing(lon_s)
+(0 observations deleted)
+
+. 
+. gen int latbin = floor(lat_s/`binsz')
+
+. gen int lonbin = floor(lon_s/`binsz')
+
+. 
+. expand 9
+(2,936 observations created)
+
+. bys site_id: gen byte _g = _n - 1
+
+. gen int dlat = floor(_g/3) - 1
+
+. gen int dlon = mod(_g,3) - 1
+
+. gen int latbin2 = latbin + dlat
+(9 missing values generated)
+
+. gen int lonbin2 = lonbin + dlon
+(9 missing values generated)
+
+. drop _g dlat dlon
+
+. 
+. save `site_bins', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.000007 not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.000007 saved as .dta format
+
+. 
+. use `villcoords', clear
+
+. gen int latbin2 = floor(lat_v/`binsz')
+
+. gen int lonbin2 = floor(lon_v/`binsz')
+
+. 
+. joinby latbin2 lonbin2 using `site_bins'
+
+. geodist lat_v lon_v lat_s lon_s, gen(dkm)
+
+. bys site_id (dkm): keep if _n==1
+(30,588 observations deleted)
+
+. 
+. keep site_id r101 r102 kab
+
+. save `site2kab', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.000008 not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.000008 saved as .dta format
+
+. 
+. use `spbun_site', clear
+
+. merge 1:1 site_id using `site2kab', nogen keep(master match)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             2
+        from master                         2  
+        from using                          0  
+
+    Matched                               365  
+    -----------------------------------------
+
+. save `spbun_site_coded', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.000005 not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.000005 saved as .dta format
+
+. save "$outdir/spbun_site_coded.dta", replace
+file /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/iv2sls_pesisir/spbun_site_coded.dta saved
+
+. 
+. tempfile spbun_pts
+
+. preserve
+
+.     use "$outdir/spbun_site_coded.dta", clear
+
+.     keep site_id lat_s lon_s
+
+.     drop if missing(lat_s) | missing(lon_s)
+(0 observations deleted)
+
+.     rename site_id pid
+
+.     rename lat_s lat_p
+
+.     rename lon_s lon_p
+
+.     save `spbun_pts', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000a not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000a saved as .dta format
+
+. restore
+
+. 
+. 
+. /****************************************************************************************
+> G. VILLAGE-LEVEL EXPOSURE MEASURES (+ nearest SPBUN id)
+> ****************************************************************************************/
+. tempfile vill_bins site_bins2 vill_exposure vill_exposure_only
+
+. 
+. use "$outdir/podes_vill.dta", clear
+
+. keep iddesa kab r101 r102 lat_v lon_v
+
+. drop if missing(lat_v) | missing(lon_v)
+(0 observations deleted)
+
+. gen int latbin = floor(lat_v/`binsz')
+
+. gen int lonbin = floor(lon_v/`binsz')
+
+. save `vill_bins', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000c not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000c saved as .dta format
+
+. 
+. use `spbun_site_coded', clear
+
+. keep site_id spbun_no lat_s lon_s w1 wvol wrr vol_s rr_s r101 r102 kab
+
+. drop if missing(lat_s) | missing(lon_s)
+(0 observations deleted)
+
+. gen int latbin = floor(lat_s/`binsz')
+
+. gen int lonbin = floor(lon_s/`binsz')
+
+. 
+. expand 9
+(2,936 observations created)
+
+. bys site_id: gen byte _g = _n - 1
+
+. gen int dlat = floor(_g/3) - 1
+
+. gen int dlon = mod(_g,3) - 1
+
+. gen int latbin2 = latbin + dlat
+(9 missing values generated)
+
+. gen int lonbin2 = lonbin + dlon
+(9 missing values generated)
+
+. drop _g dlat dlon latbin lonbin
+
+. rename latbin2 latbin
+
+. rename lonbin2 lonbin
+
+. save `site_bins2', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000d not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000d saved as .dta format
+
+. 
+. use `vill_bins', clear
+
+. joinby latbin lonbin using `site_bins2'
+
+. geodist lat_v lon_v lat_s lon_s, gen(dkm)
+
+. 
+. * nearest site metadata
+. sort iddesa dkm
+
+. by iddesa: gen double D_v = dkm[1]
+
+. by iddesa: gen str30 _nearest_spbun_no_i = spbun_no[1]
+(30,953 missing values generated)
+
+. by iddesa: gen long  _nearest_site_id_i = site_id[1]
+
+. 
+. gen double A_v_log = -ln(1 + D_v)
+
+. gen double A_v_inv = 1/(1 + D_v)
+
+. 
+. * counts within radius
+. foreach R in 5 10 15 {
+  2.     gen double C`R'_w1_i   = w1   * (dkm<=`R')
+  3.     gen double C`R'_wvol_i = wvol * (dkm<=`R')
+  4.     gen double C`R'_wrr_i  = wrr  * (dkm<=`R')
+  5. }
+(30,953 missing values generated)
+(30,953 missing values generated)
+(30,953 missing values generated)
+(30,953 missing values generated)
+(30,953 missing values generated)
+(30,953 missing values generated)
+
+. 
+. * kernel sums
+. foreach h in 5 10 20 {
+  2.     gen double Ker`h'_w1_i   = w1   * exp(-dkm/`h') * (dkm <= 3*`h')
+  3.     gen double Ker`h'_wvol_i = wvol * exp(-dkm/`h') * (dkm <= 3*`h')
+  4.     gen double Ker`h'_wrr_i  = wrr  * exp(-dkm/`h') * (dkm <= 3*`h')
+  5. }
+(30,953 missing values generated)
+(30,953 missing values generated)
+(30,953 missing values generated)
+(30,953 missing values generated)
+(30,953 missing values generated)
+(30,953 missing values generated)
+
+. 
+. collapse (min) D_v (firstnm) A_v_log A_v_inv ///
+>     (firstnm) nearest_spbun_no=_nearest_spbun_no_i nearest_site_id=_nearest_site_id_i ///
+>     (sum) ///
+>     C5_w1=C5_w1_i     C5_wvol=C5_wvol_i     C5_wrr=C5_wrr_i ///
+>     C10_w1=C10_w1_i   C10_wvol=C10_wvol_i   C10_wrr=C10_wrr_i ///
+>     C15_w1=C15_w1_i   C15_wvol=C15_wvol_i   C15_wrr=C15_wrr_i ///
+>     Ker5_w1=Ker5_w1_i   Ker5_wvol=Ker5_wvol_i   Ker5_wrr=Ker5_wrr_i ///
+>     Ker10_w1=Ker10_w1_i Ker10_wvol=Ker10_wvol_i Ker10_wrr=Ker10_wrr_i ///
+>     Ker20_w1=Ker20_w1_i Ker20_wvol=Ker20_wvol_i Ker20_wrr=Ker20_wrr_i ///
+> , by(iddesa)
+
+. 
+. * cap count-style measures at 3 (0,1,2,3+)
+. foreach R in 5 10 15 {
+  2.     replace C`R'_w1   = 3 if C`R'_w1   > 3 & !missing(C`R'_w1)
+  3.     replace C`R'_wvol = 3 if C`R'_wvol > 3 & !missing(C`R'_wvol)
+  4.     replace C`R'_wrr  = 3 if C`R'_wrr  > 3 & !missing(C`R'_wrr)
+  5. }
+(46 real changes made)
+(0 real changes made)
+(0 real changes made)
+(305 real changes made)
+(0 real changes made)
+(0 real changes made)
+(806 real changes made)
+(0 real changes made)
+(0 real changes made)
+
+. 
+. foreach h in 5 10 20 {
+  2.     cap drop Ker`h'_w1_pos lnKer`h'_w1
+  3.     gen byte   Ker`h'_w1_pos = (Ker`h'_w1 > 0) if !missing(Ker`h'_w1)
+  4.     gen double lnKer`h'_w1    = ln(1 + Ker`h'_w1)
+  5. 
+.     cap drop Ker`h'_wvol_pos lnKer`h'_wvol
+  6.     gen byte   Ker`h'_wvol_pos = (Ker`h'_wvol > 0) if !missing(Ker`h'_wvol)
+  7.     gen double lnKer`h'_wvol    = ln(1 + Ker`h'_wvol)
+  8. 
+.     cap drop Ker`h'_wrr_pos lnKer`h'_wrr
+  9.     gen byte   Ker`h'_wrr_pos = (Ker`h'_wrr > 0) if !missing(Ker`h'_wrr)
+ 10.     gen double lnKer`h'_wrr    = ln(1 + Ker`h'_wrr)
+ 11. }
+
+. 
+. keep iddesa D_v A_v_log A_v_inv nearest_spbun_no nearest_site_id ///
+>     C*_w1 C*_wvol C*_wrr ///
+>     Ker*_w1 Ker*_wvol Ker*_wrr ///
+>     Ker*_w1_pos Ker*_wvol_pos Ker*_wrr_pos ///
+>     lnKer*_w1 lnKer*_wvol lnKer*_wrr
+
+. save `vill_exposure_only', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000f not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000f saved as .dta format
+
+. 
+. use "$outdir/podes_vill.dta", clear
+
+. merge 1:1 iddesa using `vill_exposure_only', nogen keep(master match)
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                        67,153
+        from master                    67,153  
+        from using                          0  
+
+    Matched                            17,123  
+    -----------------------------------------
+
+. 
+. gen byte coord_ok  = !missing(lat_v) & !missing(lon_v)
+
+. gen byte exp_match = !missing(D_v)
+
+. 
+. * zero-fill missing exposures for villages with valid coords but no matched sites
+. foreach v of varlist C*_w1 C*_wvol C*_wrr Ker*_w1 Ker*_wvol Ker*_wrr ///
+>                    Ker*_w1_pos Ker*_wvol_pos Ker*_wrr_pos ///
+>                    lnKer*_w1 lnKer*_wvol lnKer*_wrr {
+  2.     replace `v' = 0 if missing(`v') & coord_ok==1
+  3. }
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+(67,153 real changes made)
+
+. 
+. save `vill_exposure', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000e not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000e saved as .dta format
+
+. save "$outdir/podes_vill_exposure.dta", replace
+file /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/iv2sls_pesisir/podes_vill_exposure.dta saved
+
+. 
+. * Restrict to pesisir villages only
+. cap confirm numeric variable r308a
+
+. keep if r308a==1
+(71,308 observations deleted)
+
+. 
+. /****************************************************************************************
+> H. PCA welfare indices (Wbasic_z, Util_z, Edu_z, Hlth_z) + poverty proxy lnpov
+> ****************************************************************************************/
+. 
+. * 0) SPBUN target label (full sample; no filtering)
+. cap drop spbun_target
+
+. gen byte spbun_target = 0
+
+. foreach v in r308b1a r308b1b r308b1c {
+  2.     cap confirm numeric variable `v'
+  3.     if !_rc replace spbun_target = 1 if `v'==1
+  4. }
+(12,117 real changes made)
+(112 real changes made)
+(8 real changes made)
+
+. label define spbun_target_lbl 0 "Non-target" 1 "Target (tangkap/budidaya/garam)", replace
+
+. label values spbun_target spbun_target_lbl
+
+. 
+. * Coast / fish dummies (optional controls/heterogeneity)
+. cap drop Coast Fish_strict Fish_loose
+
+. cap confirm numeric variable r308a
+
+. if !_rc gen byte Coast = (r308a==1) if !missing(r308a)
+
+. cap confirm numeric variable r308b1a
+
+. if !_rc cap confirm numeric variable r308b1b
+
+. if !_rc gen byte Fish_strict = (Coast==1 & (r308b1a==1 | r308b1b==1)) if !missing(Coast)
+
+. cap confirm numeric variable r308b1c
+
+. if !_rc gen byte Fish_loose = (Coast==1 | r308b1a==1 | r308b1b==1 | r308b1c==1 | r308b1d==1 | r308b1e==1) if !missing(r308b1d) | !missing(r308b1e) | !missing(Coast)
+
+. 
+. * 1) Wbasic
+. cap drop hh_light_total sh_elec elec_cat
+
+. egen double hh_light_total = rowtotal(r501a1 r501a2 r501b r501c)
+
+. replace hh_light_total = . if missing(r501a1) & missing(r501a2) & missing(r501b) & missing(r501c)
+(0 real changes made)
+
+. 
+. gen double sh_elec = (r501a1 + r501a2) / hh_light_total if hh_light_total>0
+
+. 
+. gen byte elec_cat = .
+(12,968 missing values generated)
+
+. replace elec_cat = 3 if sh_elec>=0.90 & sh_elec<=1
+(12,038 real changes made)
+
+. replace elec_cat = 2 if sh_elec>=0.50 & sh_elec<0.90
+(653 real changes made)
+
+. replace elec_cat = 1 if sh_elec>0    & sh_elec<0.50
+(235 real changes made)
+
+. replace elec_cat = 0 if sh_elec==0
+(42 real changes made)
+
+. 
+. label define elec_cat_lbl 0 "0%" 1 "1-49%" 2 "50-89%" 3 ">=90%", replace
+
+. label values elec_cat elec_cat_lbl
+
+. 
+. cap drop cook_market
+
+. cap confirm numeric variable r503b
+
+. if !_rc gen byte cook_market = inlist(r503b,1,2,3,4,5,7) if !missing(r503b)
+
+. 
+. _yn12_to01 r503a1-r503a11
+(9,631 real changes made)
+(9,060 real changes made)
+(8,417 real changes made)
+(5,253 real changes made)
+(12,839 real changes made)
+(12,933 real changes made)
+(6,161 real changes made)
+(12,962 real changes made)
+(12,330 real changes made)
+(1,541 real changes made)
+(12,953 real changes made)
+
+. _yn12_to01 r502a r502b r502c
+(7,081 real changes made)
+
+. 
+. local Wbasic_in "elec_cat r502a r502b r502c cook_market r503a1-r503a11"
+
+. 
+. * 2) Util
+. _yn12_to01 r507* r508a r508b r509a r509b r510*
+(11,832 real changes made)
+(4,683 real changes made)
+(10,320 real changes made)
+(12,395 real changes made)
+(11,806 real changes made)
+
+. 
+. foreach v in r509c1 r509c2 r509c3 {
+  2.     cap confirm numeric variable `v'
+  3.     if !_rc _bin0q4 `v', gen(`v'_b)
+  4. }
+(12,968 missing values generated)
+(12,503 real changes made)
+(465 real changes made)
+(12,968 missing values generated)
+(12,503 real changes made)
+(465 real changes made)
+(12,968 missing values generated)
+(12,503 real changes made)
+(465 real changes made)
+
+. 
+. ds r511c* r514* r515*, has(type numeric)
+r511c1    r511c2a   r511c2b   r511c2c   r511c3    r514a_k2  r514a_k3  r514a_k4  r514b_k2  r514b_k3  r514b_k4  r514c_k2  r514c_k3  r514c_k4  r515a     r515b     r515c
+
+. local util_extra "`r(varlist)'"
+
+. 
+. foreach v of local util_extra {
+  2.     quietly summarize `v' if !missing(`v'), meanonly
+  3.     if (r(min)>=1 & r(max)<=2) {
+  4.         replace `v' = (`v'==1) if inlist(`v',1,2)
+  5.     }
+  6.     else if (r(max)>20) {
+  7.         _bin0q4 `v', gen(`v'_b)
+  8.     }
+  9. }
+(11,757 real changes made)
+(12,837 real changes made)
+(12,179 real changes made)
+
+. 
+. local Wutil_in "r507* r508a r508b r509a r509b"
+
+. foreach v in r509c1 r509c2 r509c3 {
+  2.     cap confirm variable `v'_b
+  3.     if !_rc local Wutil_in "`Wutil_in' `v'_b"
+  4. }
+
+. foreach v of local util_extra {
+  2.     cap confirm variable `v'_b
+  3.     if !_rc local Wutil_in "`Wutil_in' `v'_b"
+  4.     else local Wutil_in "`Wutil_in' `v'"
+  5. }
+
+. 
+. * 3) Edu
+. ds r701*, has(type numeric)
+r701ak2  r701ak4  r701bk2  r701bk4  r701ck2  r701ck4  r701dk2  r701dk4  r701ek2  r701ek4  r701fk2  r701fk4  r701gk2  r701gk4  r701hk2  r701hk4  r701ik2  r701ik4  r701jk2  r701jk4  r701kk2  r701kk4  r701lk2  r701mk2  r701nk2  r701ok2  r701pk3
+r701ak3  r701ak5  r701bk3  r701bk5  r701ck3  r701ck5  r701dk3  r701dk5  r701ek3  r701ek5  r701fk3  r701fk5  r701gk3  r701gk5  r701hk3  r701hk5  r701ik3  r701ik5  r701jk3  r701jk5  r701kk3  r701kk5  r701lk3  r701mk3  r701nk3  r701ok3  r701qk3
+
+. local edu_raw "`r(varlist)'"
+
+. local Edu_in ""
+
+. 
+. foreach v of local edu_raw {
+  2.     quietly summarize `v' if !missing(`v'), meanonly
+  3.     if (r(min)>=1 & r(max)<=2) {
+  4.         replace `v' = (`v'==1) if inlist(`v',1,2)
+  5.         local Edu_in "`Edu_in' `v'"
+  6.     }
+  7.     else if (r(max)>20) {
+  8.         _bin0q4 `v', gen(`v'_b)
+  9.         local Edu_in "`Edu_in' `v'_b"
+ 10.     }
+ 11.     else {
+ 12.         local Edu_in "`Edu_in' `v'"
+ 13.     }
+ 14. }
+(12,968 missing values generated)
+(4,031 real changes made)
+(8,937 real changes made)
+(12,968 missing values generated)
+(9,819 real changes made)
+(3,149 real changes made)
+(12,968 missing values generated)
+(6,239 real changes made)
+(6,729 real changes made)
+(12,968 missing values generated)
+(7,968 real changes made)
+(5,000 real changes made)
+(12,968 missing values generated)
+(1,711 real changes made)
+(11,257 real changes made)
+(12,968 missing values generated)
+(2,861 real changes made)
+(10,107 real changes made)
+(12,968 missing values generated)
+(10,522 real changes made)
+(2,446 real changes made)
+(12,968 missing values generated)
+(11,265 real changes made)
+(1,703 real changes made)
+(12,968 missing values generated)
+(2,233 real changes made)
+(10,735 real changes made)
+(12,968 missing values generated)
+(5,423 real changes made)
+(7,545 real changes made)
+(12,968 missing values generated)
+(2,089 real changes made)
+(10,879 real changes made)
+(12,968 missing values generated)
+(2,107 real changes made)
+(10,861 real changes made)
+(12,968 missing values generated)
+(1,172 real changes made)
+(11,796 real changes made)
+(12,968 missing values generated)
+(1,463 real changes made)
+(11,505 real changes made)
+(12,968 missing values generated)
+(416 real changes made)
+(12,552 real changes made)
+(12,968 missing values generated)
+(11,552 real changes made)
+(1,416 real changes made)
+(12,968 missing values generated)
+(12,916 real changes made)
+(52 real changes made)
+
+. 
+. * 4) Hlth
+. ds r711*, has(type numeric)
+r711ak2  r711ak4  r711bk3  r711ck2  r711ck4  r711dk3  r711ek2  r711ek4  r711fk3  r711gk2  r711gk4  r711hk3  r711ik2  r711ik4  r711jk3
+r711ak3  r711bk2  r711bk4  r711ck3  r711dk2  r711dk4  r711ek3  r711fk2  r711fk4  r711gk3  r711hk2  r711hk4  r711ik3  r711jk2  r711jk4
+
+. local hlth_raw "`r(varlist)'"
+
+. local Hlth_in ""
+
+. 
+. foreach v of local hlth_raw {
+  2.     quietly summarize `v' if !missing(`v'), meanonly
+  3.     if (r(min)>=1 & r(max)<=2) {
+  4.         replace `v' = (`v'==1) if inlist(`v',1,2)
+  5.         local Hlth_in "`Hlth_in' `v'"
+  6.     }
+  7.     else if (r(max)>20) {
+  8.         _bin0q4 `v', gen(`v'_b)
+  9.         local Hlth_in "`Hlth_in' `v'_b"
+ 10.     }
+ 11.     else {
+ 12.         cap drop ln1p_`v'
+ 13.         gen double ln1p_`v' = ln(1+`v') if !missing(`v')
+ 14.         _bin0q4 ln1p_`v', gen(`v'_b)
+ 15.         local Hlth_in "`Hlth_in' `v'_b"
+ 16.     }
+ 17. }
+(12,637 real changes made)
+(12,968 missing values generated)
+(12,637 real changes made)
+(331 real changes made)
+(12,968 missing values generated)
+(12,936 real changes made)
+(32 real changes made)
+(12,359 real changes made)
+(12,968 missing values generated)
+(12,359 real changes made)
+(609 real changes made)
+(12,968 missing values generated)
+(12,901 real changes made)
+(67 real changes made)
+(12,920 real changes made)
+(12,968 missing values generated)
+(12,920 real changes made)
+(48 real changes made)
+(12,968 missing values generated)
+(12,968 real changes made)
+(12,726 real changes made)
+(12,968 missing values generated)
+(12,726 real changes made)
+(242 real changes made)
+(12,968 missing values generated)
+(12,951 real changes made)
+(17 real changes made)
+(12,968 real changes made)
+(12,968 missing values generated)
+(12,968 real changes made)
+(12,968 missing values generated)
+(12,968 real changes made)
+(12,957 real changes made)
+(12,968 missing values generated)
+(12,957 real changes made)
+(11 real changes made)
+(12,968 missing values generated)
+(12,968 real changes made)
+(12,960 real changes made)
+(12,968 missing values generated)
+(12,960 real changes made)
+(8 real changes made)
+(12,968 missing values generated)
+(12,966 real changes made)
+(2 real changes made)
+(12,944 real changes made)
+(12,968 missing values generated)
+(12,944 real changes made)
+(24 real changes made)
+(12,968 missing values generated)
+(12,961 real changes made)
+(7 real changes made)
+(12,880 real changes made)
+(12,968 missing values generated)
+(12,880 real changes made)
+(88 real changes made)
+(12,968 missing values generated)
+(12,956 real changes made)
+(12 real changes made)
+(12,959 real changes made)
+(12,968 missing values generated)
+(12,959 real changes made)
+(9 real changes made)
+(12,968 missing values generated)
+(12,968 real changes made)
+
+. 
+. * 5) Poverty proxy
+. cap drop lnpov
+
+. cap confirm numeric variable r710
+
+. if !_rc {
+.     gen double lnpov = ln(1+r710) if !missing(r710)
+.     cap drop lnpov_b
+.     _bin0q4 lnpov, gen(lnpov_b)
+(12,968 missing values generated)
+(1,482 real changes made)
+(11,486 real changes made)
+. }
+
+. 
+. * 6) Optional environment index (Env_z)
+. cap drop Env_pca1 Env_z
+
+. cap noisily pca r309a r309b r309d r309e r310, components(1) correlation
+
+Principal components/correlation                 Number of obs    =     12,968
+                                                 Number of comp.  =          1
+                                                 Trace            =          5
+    Rotation: (unrotated = principal)            Rho              =     0.7086
+
+    --------------------------------------------------------------------------
+       Component |   Eigenvalue   Difference         Proportion   Cumulative
+    -------------+------------------------------------------------------------
+           Comp1 |      3.54291      2.59223             0.7086       0.7086
+           Comp2 |      .950679      .632311             0.1901       0.8987
+           Comp3 |      .318368      .188368             0.0637       0.9624
+           Comp4 |          .13     .0719571             0.0260       0.9884
+           Comp5 |     .0580431            .             0.0116       1.0000
+    --------------------------------------------------------------------------
+
+Principal components (eigenvectors) 
+
+    --------------------------------------
+        Variable |    Comp1 | Unexplained 
+    -------------+----------+-------------
+           r309a |  -0.5118 |      .07203 
+           r309b |   0.4728 |       .2081 
+           r309d |   0.4785 |       .1889 
+           r309e |   0.5161 |       .0563 
+            r310 |  -0.1388 |       .9317 
+    --------------------------------------
+
+. if !_rc {
+.     predict double Env_pca1 if e(sample), score
+
+Scoring coefficients 
+    sum of squares(column-loading) = 1
+
+    ------------------------
+        Variable |    Comp1 
+    -------------+----------
+           r309a |  -0.5118 
+           r309b |   0.4728 
+           r309d |   0.4785 
+           r309e |   0.5161 
+            r310 |  -0.1388 
+    ------------------------
+.     egen double Env_z = std(Env_pca1)
+. }
+
+. 
+. * 7) PCA (1 component each) + z-score
+. cap noisily pca `Wbasic_in', components(1) correlation
+
+Principal components/correlation                 Number of obs    =     12,968
+                                                 Number of comp.  =          1
+                                                 Trace            =         16
+    Rotation: (unrotated = principal)            Rho              =     0.2096
+
+    --------------------------------------------------------------------------
+       Component |   Eigenvalue   Difference         Proportion   Cumulative
+    -------------+------------------------------------------------------------
+           Comp1 |      3.35418      1.77212             0.2096       0.2096
+           Comp2 |      1.58206      .316308             0.0989       0.3085
+           Comp3 |      1.26575      .164705             0.0791       0.3876
+           Comp4 |      1.10105     .0847299             0.0688       0.4564
+           Comp5 |      1.01632     .0137949             0.0635       0.5200
+           Comp6 |      1.00252     .0130999             0.0627       0.5826
+           Comp7 |      .989422     .0704815             0.0618       0.6445
+           Comp8 |      .918941     .0388764             0.0574       0.7019
+           Comp9 |      .880064     .0341793             0.0550       0.7569
+          Comp10 |      .845885     .0660049             0.0529       0.8098
+          Comp11 |       .77988     .0631898             0.0487       0.8585
+          Comp12 |       .71669      .244272             0.0448       0.9033
+          Comp13 |      .472419     .0423914             0.0295       0.9328
+          Comp14 |      .430027     .0179688             0.0269       0.9597
+          Comp15 |      .412059      .179326             0.0258       0.9855
+          Comp16 |      .232733            .             0.0145       1.0000
+    --------------------------------------------------------------------------
+
+Principal components (eigenvectors) 
+
+    --------------------------------------
+        Variable |    Comp1 | Unexplained 
+    -------------+----------+-------------
+        elec_cat |   0.2136 |        .847 
+           r502a |   0.0905 |       .9726 
+           r502b |  -0.3287 |       .6375 
+           r502c |   0.1818 |       .8891 
+     cook_market |   0.4399 |       .3509 
+          r503a1 |   0.1990 |       .8671 
+          r503a2 |   0.3310 |       .6326 
+          r503a3 |   0.3424 |       .6069 
+          r503a4 |   0.4314 |       .3757 
+          r503a5 |   0.0889 |       .9735 
+          r503a6 |   0.0418 |       .9941 
+          r503a7 |  -0.3083 |       .6812 
+          r503a8 |   0.0107 |       .9996 
+          r503a9 |   0.1161 |       .9548 
+         r503a10 |  -0.2017 |       .8635 
+         r503a11 |   0.0108 |       .9996 
+    --------------------------------------
+
+. if !_rc {
+.     cap drop Wbasic_pca1 Wbasic_z
+.     predict double Wbasic_pca1 if e(sample), score
+
+Scoring coefficients 
+    sum of squares(column-loading) = 1
+
+    ------------------------
+        Variable |    Comp1 
+    -------------+----------
+        elec_cat |   0.2136 
+           r502a |   0.0905 
+           r502b |  -0.3287 
+           r502c |   0.1818 
+     cook_market |   0.4399 
+          r503a1 |   0.1990 
+          r503a2 |   0.3310 
+          r503a3 |   0.3424 
+          r503a4 |   0.4314 
+          r503a5 |   0.0889 
+          r503a6 |   0.0418 
+          r503a7 |  -0.3083 
+          r503a8 |   0.0107 
+          r503a9 |   0.1161 
+         r503a10 |  -0.2017 
+         r503a11 |   0.0108 
+    ------------------------
+.     egen double Wbasic_z = std(Wbasic_pca1)
+. }
+
+. 
+. cap noisily pca `Wutil_in', components(1) correlation
+
+Principal components/correlation                 Number of obs    =     12,968
+                                                 Number of comp.  =          1
+                                                 Trace            =         25
+    Rotation: (unrotated = principal)            Rho              =     0.2593
+
+    --------------------------------------------------------------------------
+       Component |   Eigenvalue   Difference         Proportion   Cumulative
+    -------------+------------------------------------------------------------
+           Comp1 |      6.48275      2.86996             0.2593       0.2593
+           Comp2 |      3.61279      .690748             0.1445       0.4038
+           Comp3 |      2.92205      .595722             0.1169       0.5207
+           Comp4 |      2.32632      .562662             0.0931       0.6138
+           Comp5 |      1.76366      .489754             0.0705       0.6843
+           Comp6 |      1.27391     .0396446             0.0510       0.7353
+           Comp7 |      1.23426      .275956             0.0494       0.7846
+           Comp8 |      .958307      .102969             0.0383       0.8230
+           Comp9 |      .855337     .0818029             0.0342       0.8572
+          Comp10 |      .773534    .00853708             0.0309       0.8881
+          Comp11 |      .764997       .20363             0.0306       0.9187
+          Comp12 |      .561367      .132298             0.0225       0.9412
+          Comp13 |       .42907      .179697             0.0172       0.9583
+          Comp14 |      .249373     .0747309             0.0100       0.9683
+          Comp15 |      .174642     .0138692             0.0070       0.9753
+          Comp16 |      .160773      .013543             0.0064       0.9817
+          Comp17 |       .14723     .0523486             0.0059       0.9876
+          Comp18 |      .094881     .0255407             0.0038       0.9914
+          Comp19 |     .0693403     .0263911             0.0028       0.9942
+          Comp20 |     .0429492    .00820086             0.0017       0.9959
+          Comp21 |     .0347483    .00699878             0.0014       0.9973
+          Comp22 |     .0277496     .0059276             0.0011       0.9984
+          Comp23 |      .021822     .0119243             0.0009       0.9993
+          Comp24 |    .00989765    .00165892             0.0004       0.9997
+          Comp25 |    .00823872            .             0.0003       1.0000
+    --------------------------------------------------------------------------
+
+Principal components (eigenvectors) 
+
+    --------------------------------------
+        Variable |    Comp1 | Unexplained 
+    -------------+----------+-------------
+            r507 |  -0.0500 |       .9838 
+           r508a |  -0.0734 |        .965 
+           r508b |  -0.0604 |       .9763 
+           r509a |   0.0895 |       .9481 
+           r509b |   0.0757 |       .9629 
+        r509c1_b |   0.0782 |       .9603 
+        r509c2_b |   0.0858 |       .9523 
+        r509c3_b |   0.0861 |        .952 
+          r511c1 |  -0.0207 |       .9972 
+         r511c2a |   0.3350 |       .2723 
+         r511c2b |   0.3450 |       .2283 
+         r511c2c |   0.3530 |       .1924 
+          r511c3 |   0.3270 |       .3067 
+        r514a_k2 |   0.3579 |       .1696 
+        r514a_k3 |   0.3330 |       .2813 
+        r514a_k4 |   0.3466 |       .2213 
+        r514b_k2 |   0.1490 |        .856 
+        r514b_k3 |   0.1449 |       .8639 
+        r514b_k4 |   0.1419 |       .8695 
+        r514c_k2 |   0.1492 |       .8557 
+        r514c_k3 |   0.1354 |       .8812 
+        r514c_k4 |   0.1362 |       .8798 
+           r515a |  -0.0566 |       .9792 
+           r515b |  -0.0687 |       .9694 
+           r515c |  -0.0335 |       .9927 
+    --------------------------------------
+
+. if !_rc {
+.     cap drop Util_pca1 Util_z
+.     predict double Util_pca1 if e(sample), score
+
+Scoring coefficients 
+    sum of squares(column-loading) = 1
+
+    ------------------------
+        Variable |    Comp1 
+    -------------+----------
+            r507 |  -0.0500 
+           r508a |  -0.0734 
+           r508b |  -0.0604 
+           r509a |   0.0895 
+           r509b |   0.0757 
+        r509c1_b |   0.0782 
+        r509c2_b |   0.0858 
+        r509c3_b |   0.0861 
+          r511c1 |  -0.0207 
+         r511c2a |   0.3350 
+         r511c2b |   0.3450 
+         r511c2c |   0.3530 
+          r511c3 |   0.3270 
+        r514a_k2 |   0.3579 
+        r514a_k3 |   0.3330 
+        r514a_k4 |   0.3466 
+        r514b_k2 |   0.1490 
+        r514b_k3 |   0.1449 
+        r514b_k4 |   0.1419 
+        r514c_k2 |   0.1492 
+        r514c_k3 |   0.1354 
+        r514c_k4 |   0.1362 
+           r515a |  -0.0566 
+           r515b |  -0.0687 
+           r515c |  -0.0335 
+    ------------------------
+.     egen double Util_z = std(Util_pca1)
+. }
+
+. 
+. cap noisily pca `Edu_in', components(1) correlation
+
+Principal components/correlation                 Number of obs    =     12,968
+                                                 Number of comp.  =          1
+                                                 Trace            =         54
+    Rotation: (unrotated = principal)            Rho              =     0.2066
+
+    --------------------------------------------------------------------------
+       Component |   Eigenvalue   Difference         Proportion   Cumulative
+    -------------+------------------------------------------------------------
+           Comp1 |      11.1539      7.83442             0.2066       0.2066
+           Comp2 |      3.31953      .788095             0.0615       0.2680
+           Comp3 |      2.53143      .255641             0.0469       0.3149
+           Comp4 |      2.27579      .272091             0.0421       0.3570
+           Comp5 |       2.0037      .143234             0.0371       0.3942
+           Comp6 |      1.86047      .212543             0.0345       0.4286
+           Comp7 |      1.64792     .0714307             0.0305       0.4591
+           Comp8 |      1.57649       .12443             0.0292       0.4883
+           Comp9 |      1.45206      .109604             0.0269       0.5152
+          Comp10 |      1.34246     .0496589             0.0249       0.5401
+          Comp11 |       1.2928      .048913             0.0239       0.5640
+          Comp12 |      1.24389     .0804723             0.0230       0.5870
+          Comp13 |      1.16341     .0270628             0.0215       0.6086
+          Comp14 |      1.13635     .0395695             0.0210       0.6296
+          Comp15 |      1.09678     .0922104             0.0203       0.6499
+          Comp16 |      1.00457     .0125509             0.0186       0.6685
+          Comp17 |       .99202     .0258515             0.0184       0.6869
+          Comp18 |      .966169     .0468672             0.0179       0.7048
+          Comp19 |      .919302     .0229531             0.0170       0.7218
+          Comp20 |      .896348     .0252206             0.0166       0.7384
+          Comp21 |      .871128     .0449345             0.0161       0.7546
+          Comp22 |      .826193     .0157926             0.0153       0.7699
+          Comp23 |      .810401     .0133091             0.0150       0.7849
+          Comp24 |      .797092     .0148307             0.0148       0.7996
+          Comp25 |      .782261      .020526             0.0145       0.8141
+          Comp26 |      .761735    .00842488             0.0141       0.8282
+          Comp27 |       .75331     .0365611             0.0140       0.8422
+          Comp28 |      .716749     .0354407             0.0133       0.8555
+          Comp29 |      .681308     .0092393             0.0126       0.8681
+          Comp30 |      .672069     .0223335             0.0124       0.8805
+          Comp31 |      .649735     .0281593             0.0120       0.8925
+          Comp32 |      .621576     .0284285             0.0115       0.9041
+          Comp33 |      .593148     .0647343             0.0110       0.9150
+          Comp34 |      .528413     .0114355             0.0098       0.9248
+          Comp35 |      .516978     .0874781             0.0096       0.9344
+          Comp36 |        .4295     .0255709             0.0080       0.9424
+          Comp37 |      .403929     .0518967             0.0075       0.9498
+          Comp38 |      .352032     .0299562             0.0065       0.9564
+          Comp39 |      .322076     .0287558             0.0060       0.9623
+          Comp40 |       .29332     .0110041             0.0054       0.9677
+          Comp41 |      .282316     .0753752             0.0052       0.9730
+          Comp42 |      .206941     .0136826             0.0038       0.9768
+          Comp43 |      .193258     .0201224             0.0036       0.9804
+          Comp44 |      .173136     .0427176             0.0032       0.9836
+          Comp45 |      .130418    .00303159             0.0024       0.9860
+          Comp46 |      .127387     .0147011             0.0024       0.9884
+          Comp47 |      .112685     .0108465             0.0021       0.9905
+          Comp48 |      .101839     .0106515             0.0019       0.9923
+          Comp49 |     .0911874     .0111515             0.0017       0.9940
+          Comp50 |     .0800359    .00846787             0.0015       0.9955
+          Comp51 |      .071568     .0105273             0.0013       0.9968
+          Comp52 |     .0610407    .00463486             0.0011       0.9980
+          Comp53 |     .0564059     .0030174             0.0010       0.9990
+          Comp54 |     .0533885            .             0.0010       1.0000
+    --------------------------------------------------------------------------
+
+Principal components (eigenvectors) 
+
+    --------------------------------------
+        Variable |    Comp1 | Unexplained 
+    -------------+----------+-------------
+         r701ak2 |  -0.0040 |       .9998 
+       r701ak3_b |  -0.1604 |       .7129 
+       r701ak4_b |   0.0901 |       .9095 
+         r701ak5 |   0.1071 |       .8722 
+         r701bk2 |  -0.0442 |       .9782 
+       r701bk3_b |  -0.1711 |       .6736 
+       r701bk4_b |   0.1589 |       .7183 
+         r701bk5 |   0.1684 |       .6838 
+         r701ck2 |  -0.0173 |       .9967 
+         r701ck3 |  -0.1496 |       .7505 
+       r701ck4_b |   0.2206 |       .4571 
+         r701ck5 |   0.2295 |       .4126 
+       r701dk2_b |  -0.1602 |       .7136 
+       r701dk3_b |  -0.0679 |       .9485 
+       r701dk4_b |   0.0607 |        .959 
+         r701dk5 |   0.0708 |       .9441 
+         r701ek2 |  -0.0507 |       .9713 
+         r701ek3 |  -0.1540 |       .7356 
+       r701ek4_b |   0.2220 |       .4504 
+         r701ek5 |   0.2348 |       .3853 
+         r701fk2 |  -0.0569 |       .9639 
+         r701fk3 |  -0.1300 |       .8114 
+       r701fk4_b |   0.1103 |       .8644 
+         r701fk5 |   0.1336 |       .8008 
+         r701gk2 |  -0.0562 |       .9648 
+         r701gk3 |  -0.1580 |       .7214 
+       r701gk4_b |   0.2221 |       .4496 
+         r701gk5 |   0.2348 |       .3853 
+         r701hk2 |  -0.0609 |       .9586 
+         r701hk3 |  -0.0984 |        .892 
+       r701hk4_b |   0.1427 |        .773 
+         r701hk5 |   0.1734 |       .6645 
+         r701ik2 |  -0.0488 |       .9735 
+         r701ik3 |  -0.1336 |       .8009 
+       r701ik4_b |   0.2183 |       .4685 
+         r701ik5 |   0.2318 |       .4007 
+         r701jk2 |  -0.0612 |       .9582 
+         r701jk3 |  -0.1168 |       .8478 
+       r701jk4_b |   0.1855 |       .6163 
+         r701jk5 |   0.2049 |       .5318 
+         r701kk2 |  -0.0483 |       .9739 
+         r701kk3 |  -0.0880 |       .9137 
+       r701kk4_b |   0.1778 |       .6472 
+         r701kk5 |   0.2000 |        .554 
+         r701lk2 |  -0.0215 |       .9948 
+         r701lk3 |  -0.0270 |       .9919 
+         r701mk2 |  -0.0218 |       .9947 
+         r701mk3 |  -0.0173 |       .9967 
+         r701nk2 |  -0.0186 |       .9961 
+         r701nk3 |  -0.0119 |       .9984 
+         r701ok2 |  -0.0141 |       .9978 
+       r701ok3_b |  -0.1309 |       .8089 
+         r701pk3 |  -0.1120 |       .8601 
+       r701qk3_b |  -0.0150 |       .9975 
+    --------------------------------------
+
+. if !_rc {
+.     cap drop Edu_pca1 Edu_z
+.     predict double Edu_pca1 if e(sample), score
+
+Scoring coefficients 
+    sum of squares(column-loading) = 1
+
+    ------------------------
+        Variable |    Comp1 
+    -------------+----------
+         r701ak2 |  -0.0040 
+       r701ak3_b |  -0.1604 
+       r701ak4_b |   0.0901 
+         r701ak5 |   0.1071 
+         r701bk2 |  -0.0442 
+       r701bk3_b |  -0.1711 
+       r701bk4_b |   0.1589 
+         r701bk5 |   0.1684 
+         r701ck2 |  -0.0173 
+         r701ck3 |  -0.1496 
+       r701ck4_b |   0.2206 
+         r701ck5 |   0.2295 
+       r701dk2_b |  -0.1602 
+       r701dk3_b |  -0.0679 
+       r701dk4_b |   0.0607 
+         r701dk5 |   0.0708 
+         r701ek2 |  -0.0507 
+         r701ek3 |  -0.1540 
+       r701ek4_b |   0.2220 
+         r701ek5 |   0.2348 
+         r701fk2 |  -0.0569 
+         r701fk3 |  -0.1300 
+       r701fk4_b |   0.1103 
+         r701fk5 |   0.1336 
+         r701gk2 |  -0.0562 
+         r701gk3 |  -0.1580 
+       r701gk4_b |   0.2221 
+         r701gk5 |   0.2348 
+         r701hk2 |  -0.0609 
+         r701hk3 |  -0.0984 
+       r701hk4_b |   0.1427 
+         r701hk5 |   0.1734 
+         r701ik2 |  -0.0488 
+         r701ik3 |  -0.1336 
+       r701ik4_b |   0.2183 
+         r701ik5 |   0.2318 
+         r701jk2 |  -0.0612 
+         r701jk3 |  -0.1168 
+       r701jk4_b |   0.1855 
+         r701jk5 |   0.2049 
+         r701kk2 |  -0.0483 
+         r701kk3 |  -0.0880 
+       r701kk4_b |   0.1778 
+         r701kk5 |   0.2000 
+         r701lk2 |  -0.0215 
+         r701lk3 |  -0.0270 
+         r701mk2 |  -0.0218 
+         r701mk3 |  -0.0173 
+         r701nk2 |  -0.0186 
+         r701nk3 |  -0.0119 
+         r701ok2 |  -0.0141 
+       r701ok3_b |  -0.1309 
+         r701pk3 |  -0.1120 
+       r701qk3_b |  -0.0150 
+    ------------------------
+.     egen double Edu_z = std(Edu_pca1)
+. }
+
+. 
+. cap noisily pca `Hlth_in', components(1) correlation
+(r711ck4_b dropped because of zero variance)
+(r711ek2 dropped because of zero variance)
+(r711ek3_b dropped because of zero variance)
+(r711ek4_b dropped because of zero variance)
+(r711fk4_b dropped because of zero variance)
+(r711jk4_b dropped because of zero variance)
+
+Principal components/correlation                 Number of obs    =     12,968
+                                                 Number of comp.  =          1
+                                                 Trace            =         24
+    Rotation: (unrotated = principal)            Rho              =     0.1257
+
+    --------------------------------------------------------------------------
+       Component |   Eigenvalue   Difference         Proportion   Cumulative
+    -------------+------------------------------------------------------------
+           Comp1 |      3.01763      .685009             0.1257       0.1257
+           Comp2 |      2.33262      .165519             0.0972       0.2229
+           Comp3 |       2.1671     .0925916             0.0903       0.3132
+           Comp4 |      2.07451      .225383             0.0864       0.3997
+           Comp5 |      1.84912     .0719035             0.0770       0.4767
+           Comp6 |      1.77722      .057655             0.0741       0.5508
+           Comp7 |      1.71957      .022086             0.0716       0.6224
+           Comp8 |      1.69748      .140991             0.0707       0.6931
+           Comp9 |      1.55649      .651531             0.0649       0.7580
+          Comp10 |      .904957     .0367777             0.0377       0.7957
+          Comp11 |       .86818     .0192911             0.0362       0.8319
+          Comp12 |      .848889     .0301362             0.0354       0.8672
+          Comp13 |      .818752      .150272             0.0341       0.9014
+          Comp14 |       .66848     .0984481             0.0279       0.9292
+          Comp15 |      .570032      .401528             0.0238       0.9530
+          Comp16 |      .168504     .0138241             0.0070       0.9600
+          Comp17 |       .15468    .00856835             0.0064       0.9664
+          Comp18 |      .146112    .00952813             0.0061       0.9725
+          Comp19 |      .136584     .0080023             0.0057       0.9782
+          Comp20 |      .128581     .0179715             0.0054       0.9836
+          Comp21 |       .11061     .0120806             0.0046       0.9882
+          Comp22 |     .0985294    .00240406             0.0041       0.9923
+          Comp23 |     .0961253    .00686817             0.0040       0.9963
+          Comp24 |     .0892571            .             0.0037       1.0000
+    --------------------------------------------------------------------------
+
+Principal components (eigenvectors) 
+
+    --------------------------------------
+        Variable |    Comp1 | Unexplained 
+    -------------+----------+-------------
+         r711ak2 |   0.3876 |       .5466 
+       r711ak3_b |   0.3839 |       .5552 
+       r711ak4_b |   0.1146 |       .9604 
+         r711bk2 |   0.3225 |       .6861 
+       r711bk3_b |   0.3174 |        .696 
+       r711bk4_b |   0.0951 |       .9727 
+         r711ck2 |   0.2547 |       .8043 
+       r711ck3_b |   0.2461 |       .8172 
+         r711dk2 |   0.3225 |       .6861 
+       r711dk3_b |   0.3144 |       .7017 
+       r711dk4_b |   0.0723 |       .9842 
+         r711fk2 |   0.1759 |       .9067 
+       r711fk3_b |   0.1738 |       .9089 
+         r711gk2 |   0.1033 |       .9678 
+       r711gk3_b |   0.0929 |       .9739 
+       r711gk4_b |   0.0616 |       .9885 
+         r711hk2 |   0.0775 |       .9819 
+       r711hk3_b |   0.0605 |        .989 
+       r711hk4_b |   0.0379 |       .9957 
+         r711ik2 |   0.1344 |       .9455 
+       r711ik3_b |   0.1271 |       .9513 
+       r711ik4_b |   0.0350 |       .9963 
+         r711jk2 |   0.0883 |       .9765 
+       r711jk3_b |   0.0575 |         .99 
+    --------------------------------------
+
+. if !_rc {
+.     cap drop Hlth_pca1 Hlth_z
+.     predict double Hlth_pca1 if e(sample), score
+
+Scoring coefficients 
+    sum of squares(column-loading) = 1
+
+    ------------------------
+        Variable |    Comp1 
+    -------------+----------
+         r711ak2 |   0.3876 
+       r711ak3_b |   0.3839 
+       r711ak4_b |   0.1146 
+         r711bk2 |   0.3225 
+       r711bk3_b |   0.3174 
+       r711bk4_b |   0.0951 
+         r711ck2 |   0.2547 
+       r711ck3_b |   0.2461 
+         r711dk2 |   0.3225 
+       r711dk3_b |   0.3144 
+       r711dk4_b |   0.0723 
+         r711fk2 |   0.1759 
+       r711fk3_b |   0.1738 
+         r711gk2 |   0.1033 
+       r711gk3_b |   0.0929 
+       r711gk4_b |   0.0616 
+         r711hk2 |   0.0775 
+       r711hk3_b |   0.0605 
+       r711hk4_b |   0.0379 
+         r711ik2 |   0.1344 
+       r711ik3_b |   0.1271 
+       r711ik4_b |   0.0350 
+         r711jk2 |   0.0883 
+       r711jk3_b |   0.0575 
+    ------------------------
+.     egen double Hlth_z = std(Hlth_pca1)
+. }
+
+. 
+. if !_rc {
+.         cap drop lnpov_z
+.         egen double lnpov_z = std(-lnpov)
+. }
+
+. 
+. 
+. * 8) PCA of all components
+. local META_IN "Wbasic_z lnpov_z"
+
+. 
+. cap drop WelfareMeta_pca1_all WelfareMeta_z_all
+
+. 
+. predict double WelfareMeta_pca1_coast if e(sample), score
+
+Scoring coefficients 
+    sum of squares(column-loading) = 1
+
+    ------------------------
+        Variable |    Comp1 
+    -------------+----------
+         r711ak2 |   0.3876 
+       r711ak3_b |   0.3839 
+       r711ak4_b |   0.1146 
+         r711bk2 |   0.3225 
+       r711bk3_b |   0.3174 
+       r711bk4_b |   0.0951 
+         r711ck2 |   0.2547 
+       r711ck3_b |   0.2461 
+         r711dk2 |   0.3225 
+       r711dk3_b |   0.3144 
+       r711dk4_b |   0.0723 
+         r711fk2 |   0.1759 
+       r711fk3_b |   0.1738 
+         r711gk2 |   0.1033 
+       r711gk3_b |   0.0929 
+       r711gk4_b |   0.0616 
+         r711hk2 |   0.0775 
+       r711hk3_b |   0.0605 
+       r711hk4_b |   0.0379 
+         r711ik2 |   0.1344 
+       r711ik3_b |   0.1271 
+       r711ik4_b |   0.0350 
+         r711jk2 |   0.0883 
+       r711jk3_b |   0.0575 
+    ------------------------
+
+. egen double WelfareMeta_z_coast = std(WelfareMeta_pca1_coast) if !missing(WelfareMeta_pca1_coast)
+
+. 
+. label var WelfareMeta_pca1_coast "Meta welfare PC1 score (COAST)"
+
+. label var WelfareMeta_z_coast    "Meta welfare PC1 z-score (COAST)"
+
+. 
+. * ----------------------------
+. * 8) (nearest SPBUN) + SAVE (exposure + PCA + IV-ready A)
+. * ----------------------------
+. if "`spbun_pts'"=="" {
+.     di as err "spbun_pts tempfile not defined. Run the SPBUN points section earlier in the SAME session."
+.     exit 198
+. }
+
+. cap confirm file "`spbun_pts'"
+
+. if _rc {
+.     di as err "spbun_pts tempfile not found on disk. Re-run the points section earlier in the SAME session."
+.     exit 198
+. }
+
+. 
+. * recompute nearest distance (village -> SPBUN points)
+. cap drop D_spbun
+
+. _mindist_2pass, idvar(iddesa) latvar(lat_v) lonvar(lon_v) using("`spbun_pts'") ///
+>     outvar(D_spbun) binsz1(1) ring1(6) binsz2(2) ring2(7)
+(0 observations deleted)
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000g not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000g saved as .dta format
+(0 observations deleted)
+(61,656 observations created)
+(169 missing values generated)
+(169 missing values generated)
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000h not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000h saved as .dta format
+
+Duplicates in terms of iddesa
+
+(1,106,474 observations deleted)
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000j not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000j saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                            12,968  
+    -----------------------------------------
+
+. 
+. * build A measures safely
+. cap drop A_v_log
+
+. gen double A_v_log = -ln(1 + D_spbun) if !missing(D_spbun)
+
+. 
+. cap drop A_v_inv
+
+. gen double A_v_inv = 1/(1 + D_spbun) if !missing(D_spbun)
+
+. 
+. compress
+  variable r706d was int now byte
+  variable r711ak3 was int now byte
+  variable r711ik3 was int now byte
+  variable r711jk3 was int now byte
+  variable r803b was int now byte
+  variable r805a was int now byte
+  variable r805b was int now byte
+  variable r805c was int now byte
+  variable r805d was int now byte
+  variable r805f was int now byte
+  variable r809a was int now byte
+  variable r101 was int now byte
+  variable r102 was int now byte
+  variable kab was long now int
+  variable nearest_site_id was long now int
+  variable C5_w1 was double now byte
+  variable C5_wvol was double now byte
+  variable C5_wrr was double now byte
+  variable C10_w1 was double now byte
+  variable C10_wvol was double now byte
+  variable C10_wrr was double now byte
+  variable C15_w1 was double now byte
+  variable C15_wvol was double now byte
+  variable C15_wrr was double now byte
+  variable Ker5_wvol was double now byte
+  variable Ker5_wrr was double now byte
+  variable Ker10_wvol was double now byte
+  variable Ker10_wrr was double now byte
+  variable Ker20_wvol was double now byte
+  variable Ker20_wrr was double now byte
+  variable lnKer5_wvol was double now byte
+  variable lnKer5_wrr was double now byte
+  variable lnKer10_wvol was double now byte
+  variable lnKer10_wrr was double now byte
+  variable lnKer20_wvol was double now byte
+  variable lnKer20_wrr was double now byte
+  variable hh_light_total was double now long
+  variable ln1p_r711ck4 was double now byte
+  variable ln1p_r711ek3 was double now byte
+  variable ln1p_r711ek4 was double now byte
+  variable ln1p_r711fk4 was double now byte
+  variable ln1p_r711jk4 was double now byte
+  variable nama_kab was str26 now str25
+  variable nama_kec was str31 now str26
+  variable nama_desa was str46 now str33
+  variable nearest_spbun_no was str30 now str1
+  (3,254,968 bytes saved)
+
+. save "$outdir/podes_vill_spbun_pca.dta", replace
+file /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/iv2sls_pesisir/podes_vill_spbun_pca.dta saved
+
+. 
+. /****************************************************************************************
+> I. INSTRUMENTS (VILLAGE-LEVEL): village distance to Pelabuhan/TBBM/TPI
+> ******************************************************************************/
+. *----------------------------
+. * 0) Guards
+. *----------------------------
+. cap which geodist
+
+. if _rc {
+.     di as err "geodist not installed. Run: ssc install geodist, replace"
+.     exit 199
+. }
+
+. 
+. capture program list _mindist_2pass
+
+. if _rc {
+.     di as err "_mindist_2pass is not defined in memory. Ensure Section C (HELPERS) runs before Section I in the SAME do-file/session."
+.     exit 199
+. }
+
+. 
+. capture program list _fix_latlon_scale
+
+. if _rc {
+.     di as err "_fix_latlon_scale is not defined in memory. Ensure Section C (HELPERS) runs before Section I in the SAME do-file/session."
+.     exit 199
+. }
+
+. 
+. *----------------------------
+. * 1) Build standardized point datasets (Pelabuhan/TBBM/TPI)
+. *----------------------------
+. tempfile pel_pts tbbm_pts tpi_pts
+
+. 
+. * ---- Pelabuhan points ----
+. preserve
+
+.     import delimited "$pelabuhan_data", clear varnames(1) case(preserve) stringcols(_all)
+(encoding automatically selected: UTF-8)
+(7 vars, 683 obs)
+
+. 
+.     local latcol ""
+
+.     local loncol ""
+
+.     foreach v of varlist _all {
+  2.         if "`latcol'"=="" & (strpos(lower("`v'"),"lintang") | strpos(lower("`v'"),"lat")) {
+  3.             local latcol `v'
+  4.         }
+  5.         if "`loncol'"=="" & (strpos(lower("`v'"),"bujur") | strpos(lower("`v'"),"lon") | strpos(lower("`v'"),"long")) {
+  6.             local loncol `v'
+  7.         }
+  8.     }
+
+. 
+.     if "`latcol'"=="" | "`loncol'"=="" {
+.         di as err "Pelabuhan: could not detect lat/lon columns."
+.         describe, short
+.         restore
+.         exit 198
+.     }
+
+. 
+.     rename `latcol' lat_p
+
+.     rename `loncol' lon_p
+
+.     destring lat_p lon_p, replace ignore(",")
+lat_p: all characters numeric; replaced as double
+lon_p: all characters numeric; replaced as double
+
+. 
+.     _fix_latlon_scale lat_p lon_p
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 observations deleted)
+(0 observations deleted)
+
+. 
+.     keep lat_p lon_p
+
+.     gen long pid = _n
+
+.     save `pel_pts', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000g not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000g saved as .dta format
+
+.     save "$outdir/pel_pts.dta", replace
+file /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/iv2sls_pesisir/pel_pts.dta saved
+
+. restore
+
+. 
+. * ---- TBBM points ----
+. preserve
+
+.     cap noisily import excel "$tbbm_data", describe
+
+     Sheet | Range
+  ---------+---------
+    Sheet1 | A1:G310
+
+.     if _rc {
+.         di as err "TBBM: import excel describe failed. Check $tbbm_data path/format."
+.         restore
+.         exit 601
+.     }
+
+. 
+.     local ws1 = r(worksheet_1)
+
+.     import excel "$tbbm_data", sheet("`ws1'") firstrow clear
+(7 vars, 309 obs)
+
+. 
+.     local latcol ""
+
+.     local loncol ""
+
+.     foreach v of varlist _all {
+  2.         if "`latcol'"=="" & strpos(lower("`v'"),"lat") {
+  3.             local latcol `v'
+  4.         }
+  5.         if "`loncol'"=="" & (strpos(lower("`v'"),"lon") | strpos(lower("`v'"),"long")) {
+  6.             local loncol `v'
+  7.         }
+  8.     }
+
+. 
+.     if "`latcol'"=="" | "`loncol'"=="" {
+.         di as err "TBBM: could not detect lat/lon columns."
+.         describe, short
+.         restore
+.         exit 198
+.     }
+
+. 
+.     rename `latcol' lat_p
+
+.     rename `loncol' lon_p
+
+.     destring lat_p lon_p, replace ignore(",")
+lat_p already numeric; no replace
+lon_p already numeric; no replace
+
+. 
+.     _fix_latlon_scale lat_p lon_p
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 real changes made)
+(0 observations deleted)
+(0 observations deleted)
+
+. 
+.     keep lat_p lon_p
+
+.     gen long pid = _n
+
+.     save `tbbm_pts', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000h not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000h saved as .dta format
+
+.     save "$outdir/tbbm_pts.dta", replace
+file /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/iv2sls_pesisir/tbbm_pts.dta saved
+
+. restore
+
+. 
+. * ---- TPI points ----
+. preserve
+
+.     cap noisily import excel "$tpi_data", describe
+
+                         Sheet | Range
+  -----------------------------+-----------------------------
+  tpi_google_v1_master_deduped | A1:U1217
+
+.     if _rc {
+.         di as err "TPI: import excel describe failed. Check $tpi_data path/format."
+.         restore
+.         exit 601
+.     }
+
+. 
+.     local ws1 = r(worksheet_1)
+
+.     import excel "$tpi_data", sheet("`ws1'") firstrow clear
+(21 vars, 1,216 obs)
+
+. 
+.     local latcol ""
+
+.     local loncol ""
+
+.     foreach v of varlist _all {
+  2.         if "`latcol'"=="" & strpos(lower("`v'"),"lat") {
+  3.             local latcol `v'
+  4.         }
+  5.         if "`loncol'"=="" & (strpos(lower("`v'"),"lon") | strpos(lower("`v'"),"long")) {
+  6.             local loncol `v'
+  7.         }
+  8.     }
+
+. 
+.     if "`latcol'"=="" | "`loncol'"=="" {
+.         di as err "TPI: could not detect lat/lon columns."
+.         describe, short
+.         restore
+.         exit 198
+.     }
+
+. 
+.     rename `latcol' lat_p
+
+.     rename `loncol' lon_p
+
+.     destring lat_p lon_p, replace ignore(",")
+lat_p: all characters numeric; replaced as double
+lon_p already numeric; no replace
+
+. 
+.     _fix_latlon_scale lat_p lon_p
+(220 real changes made, 220 to missing)
+(74 real changes made, 74 to missing)
+(837 real changes made)
+(1,142 real changes made)
+(283 missing values generated)
+(220 missing values generated)
+(0 real changes made)
+(0 real changes made)
+(283 observations deleted)
+(0 observations deleted)
+
+. 
+.     keep lat_p lon_p
+
+.     gen long pid = _n
+
+.     save `tpi_pts', replace
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000i not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000i saved as .dta format
+
+.     save "$outdir/tpi_pts.dta", replace
+file /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/iv2sls_pesisir/tpi_pts.dta saved
+
+. restore
+
+. 
+. *----------------------------
+. * 2) Compute village-level IVs (village -> nearest node)
+. *----------------------------
+. use "$outdir/podes_vill_spbun_pca.dta", clear
+
+. 
+. cap confirm variable lat_v
+
+. if _rc {
+.     merge 1:1 iddesa using "$outdir/podes_vill.dta", nogen keep(master match) keepusing(lat_v lon_v kab)
+. }
+
+. 
+. cap confirm variable lon_v
+
+. if _rc {
+.     merge 1:1 iddesa using "$outdir/podes_vill.dta", nogen keep(master match) keepusing(lat_v lon_v kab)
+. }
+
+. 
+. cap confirm variable lat_v
+
+. if _rc {
+.     di as err "lat_v missing even after merge."
+.     exit 111
+. }
+
+. 
+. cap confirm variable lon_v
+
+. if _rc {
+.     di as err "lon_v missing even after merge."
+.     exit 111
+. }
+
+. 
+. cap drop D_pel_iv D_tbbm_iv D_tpi_iv
+
+. 
+. _mindist_2pass, idvar(iddesa) latvar(lat_v) lonvar(lon_v) using("`pel_pts'") ///
+>     outvar(D_pel_iv) binsz1(1) ring1(6) binsz2(2) ring2(7)
+(0 observations deleted)
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000m not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000m saved as .dta format
+(0 observations deleted)
+(114,744 observations created)
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000n not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000n saved as .dta format
+
+Duplicates in terms of iddesa
+
+(1,960,641 observations deleted)
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000p not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000p saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                            12,968  
+    -----------------------------------------
+
+. 
+. _mindist_2pass, idvar(iddesa) latvar(lat_v) lonvar(lon_v) using("`tbbm_pts'") ///
+>     outvar(D_tbbm_iv) binsz1(1) ring1(6) binsz2(2) ring2(7)
+(0 observations deleted)
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000m not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000m saved as .dta format
+(0 observations deleted)
+(51,912 observations created)
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000n not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000n saved as .dta format
+
+Duplicates in terms of iddesa
+
+(795,102 observations deleted)
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000p not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000p saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                            12,968  
+    -----------------------------------------
+
+. 
+. _mindist_2pass, idvar(iddesa) latvar(lat_v) lonvar(lon_v) using("`tpi_pts'") ///
+>     outvar(D_tpi_iv) binsz1(1) ring1(6) binsz2(2) ring2(7)
+(0 observations deleted)
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000m not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000m saved as .dta format
+(0 observations deleted)
+(156,744 observations created)
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000n not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000n saved as .dta format
+
+Duplicates in terms of iddesa
+
+(2,266,954 observations deleted)
+(file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000p not found)
+file /var/folders/97/_t7418h90z7_plcs1h17z0vh0000gn/T//S_74384.00000p saved as .dta format
+
+    Result                      Number of obs
+    -----------------------------------------
+    Not matched                             0
+    Matched                            12,968  
+    -----------------------------------------
+
+. 
+. cap drop Z_pel Z_tbbm Z_tpi
+
+. gen double Z_pel  = -ln(1 + D_pel_iv)  if !missing(D_pel_iv)
+
+. gen double Z_tbbm = -ln(1 + D_tbbm_iv) if !missing(D_tbbm_iv)
+
+. gen double Z_tpi  = -ln(1 + D_tpi_iv)  if !missing(D_tpi_iv)
+
+. 
+. *----------------------------
+. * 3) Diagnostics: check kab-constant instruments (optional)
+. *----------------------------
+. cap confirm variable kab
+
+. if !_rc {
+.     foreach v in Z_pel Z_tbbm Z_tpi {
+  2.         cap drop sd_`v'
+  3.         bys kab: egen sd_`v' = sd(`v')
+  4.         di "---- `v': kab groups with sd==0 (among non-missing) ----"
+  5.         count if sd_`v'==0 & !missing(sd_`v')
+  6.     }
+(2 missing values generated)
+---- Z_pel: kab groups with sd==0 (among non-missing) ----
+  0
+(2 missing values generated)
+---- Z_tbbm: kab groups with sd==0 (among non-missing) ----
+  0
+(2 missing values generated)
+---- Z_tpi: kab groups with sd==0 (among non-missing) ----
+  0
+. }
+
+. 
+. compress
+  (0 bytes saved)
+
+. save "$outdir/podes_vill_spbun_pca_iv.dta", replace
+file /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/iv2sls_pesisir/podes_vill_spbun_pca_iv.dta saved
+
+. 
+. exit, clear
+
+end of do-file
+
+
+. do "/Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/SPBUN-Analysis4.do"
+
+. /****************************************************************************************
+> SPBUN (SPBU Nelayan) exposure → welfare outcomes (PODES village + SUSENAS household)
+> Baseline: SPBUN only (extend later for SPBU / SPBUN+SPBU)
+> 
+> Disusun oleh: Atha (PSE)
+> Tujuan: Analisis #4
+> ****************************************************************************************/
+. 
+. version 17
+
+. clear all
+
+. set more off
+
+. set linesize 255
+
+. 
+. /****************************************************************************************
+> A. PATHS
+> ****************************************************************************************/
+. global ROOT "/Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina"
+
+. 
+. global DATA_COAST "$ROOT/Output/iv2sls_pesisir/podes_vill_spbun_pca_iv.dta"
+
+. global DATA_ALL   "$ROOT/Output/iv2sls/podes_vill_spbun_pca_iv.dta"
+
+. 
+. global outdir "$ROOT/Output/tsls"
+
+. cap mkdir "$outdir"
+
+. cap mkdir "$outdir/tables"
+
+. cap mkdir "$outdir/village_values"
+
+. cap mkdir "$outdir/logs"
+
+. 
+. cap log close

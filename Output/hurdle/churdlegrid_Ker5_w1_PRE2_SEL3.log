@@ -1,0 +1,13 @@
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/hurdle/churdlegrid_Ker5_w1_PRE2_SEL3.log
+  log type:  text
+ opened on:  22 Jan 2026, 12:06:14
+RUN: churdle lognormal Ker5_w1 lnpov, select(i.r308b1d i.r308b1e i.r309a i.r309b i.r309d i.r309e i.r310 i.r403a i.r403c1 i.r403c2 lnpov) ll(0)
+lognormal not a valid estimator
+FAILED (rc=198)
+      name:  <unnamed>
+       log:  /Users/athamawardi/Desktop/Research-Projects/PSE_Pertamina/Output/hurdle/churdlegrid_Ker5_w1_PRE2_SEL3.log
+  log type:  text
+ closed on:  22 Jan 2026, 12:06:14
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
